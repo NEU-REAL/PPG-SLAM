@@ -1,0 +1,18 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "ROS2 Debug Node",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "/home/z/PPG-SLAM/ws_ppgslam/install/ppg_slam/lib/ppg_slam/ppg_slam_node",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "",
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb"
+        }
+    ]
+}
