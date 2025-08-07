@@ -64,21 +64,21 @@ target_link_libraries(pub_euroc_node ${OpenCV_LIBS} )
 ament_target_dependencies(pub_euroc_node
     tf2 tf2_ros nav_msgs sensor_msgs geometry_msgs visualization_msgs cv_bridge
 )
-# add_executable(pub_tum_node test/pub_tum.cpp)
-# target_link_libraries(pub_tum_node ${OpenCV_LIBS} )
-# ament_target_dependencies(pub_tum_node
-#     tf2 tf2_ros nav_msgs sensor_msgs geometry_msgs visualization_msgs cv_bridge
-# )
-# add_executable(pub_uma_node test/pub_uma.cpp)
-# target_link_libraries(pub_uma_node ${OpenCV_LIBS} )
-# ament_target_dependencies(pub_uma_node
-#     tf2 tf2_ros nav_msgs sensor_msgs geometry_msgs visualization_msgs cv_bridge
-# )
+add_executable(pub_tum_node test/pub_tum.cpp)
+target_link_libraries(pub_tum_node ${OpenCV_LIBS} )
+ament_target_dependencies(pub_tum_node
+    tf2 tf2_ros nav_msgs sensor_msgs geometry_msgs visualization_msgs cv_bridge
+)
+add_executable(pub_uma_node test/pub_uma.cpp)
+target_link_libraries(pub_uma_node ${OpenCV_LIBS} )
+ament_target_dependencies(pub_uma_node
+    tf2 tf2_ros nav_msgs sensor_msgs geometry_msgs visualization_msgs cv_bridge
+)
 
 install(TARGETS ${PROJECT_NAME}_node DESTINATION lib/${PROJECT_NAME})
 install(TARGETS pub_euroc_node DESTINATION lib/${PROJECT_NAME})
-# install(TARGETS pub_tum_node   DESTINATION lib/${PROJECT_NAME})
-# install(TARGETS pub_uma_node   DESTINATION lib/${PROJECT_NAME})
+install(TARGETS pub_tum_node   DESTINATION lib/${PROJECT_NAME})
+install(TARGETS pub_uma_node   DESTINATION lib/${PROJECT_NAME})
 
 install(TARGETS Sensors DESTINATION lib)
 install(TARGETS Feature DESTINATION lib)

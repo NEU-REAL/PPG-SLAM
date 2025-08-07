@@ -64,9 +64,6 @@ public:
 
     vector<KeyFrame*> DetectNBestCandidates(KeyFrame *pKF, unsigned int nNumCandidates);
     vector<KeyFrame*> DetectRelocalizationCandidates(Frame *F);
-
-    void IncreseMap(KeyFrame* pNewKF);
-    
     std::mutex mMutexMapUpdate;
 
     GeometricCamera* mpCamera;
@@ -91,8 +88,6 @@ protected:
 
     // Mutex
     std::mutex mMutexMap;
-
-    std::list<MapPoint *> mlpRecentAddedMapPoints;
 
 // Database
 public:

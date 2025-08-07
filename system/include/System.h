@@ -38,7 +38,7 @@ public:
     ~SlamNode();
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-    void Load(const string &strVocFile, const string &strSettingsFile, const string &netFile);
+    void Load();
 
     void IMU_CB(const sensor_msgs::msg::Imu::SharedPtr msg);
 

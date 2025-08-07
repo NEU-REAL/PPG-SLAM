@@ -9,7 +9,7 @@ SlamNode::SlamNode() : Node("slam_node")
     latestImuTs = 0;
     latestImageTs = 0;
 
-    Load("install/ppg_slam/share/ppg_slam/Vocabulary/voc_euroc_9x3.gz", "install/ppg_slam/share/ppg_slam/config/EuRoC.yaml", "install/ppg_slam/share/ppg_slam/net");
+    Load();
     imu_sub = this->create_subscription<sensor_msgs::msg::Imu>("/ppg_slam/imu_raw", 1000, std::bind(&SlamNode::IMU_CB, this, std::placeholders::_1));
     image_sub = this->create_subscription<sensor_msgs::msg::Image>("/ppg_slam/image_raw", 100, std::bind(&SlamNode::Image_CB, this, std::placeholders::_1));
     m_timer_exe = this->create_wall_timer(10ms, std::bind(&SlamNode::timer, this));
@@ -72,17 +72,17 @@ SlamNode::~SlamNode()
     cout << endl << "End of saving trajectory.. "<< endl;
 }
 
-void SlamNode::Load(const string &strVocFile, const string &strSettingsFile, const string &netFile)
+void SlamNode::Load()
 {
     this->declare_parameter<std::string>("vocabulary", "");
     this->declare_parameter<std::string>("config", "");
     this->declare_parameter<std::string>("net", "");
-    string vocPath, configPath, netPath;
-    if(!this->get_parameter<std::string>("vocabulary", vocPath))
+    string strVocFile, strSettingsFile, netFile;
+    if(!this->get_parameter<std::string>("vocabulary", strVocFile))
         RCLCPP_ERROR(this->get_logger(), "FAIL TO LOAD vocabulary!");
-    if(!this->get_parameter<std::string>("config", configPath))
+    if(!this->get_parameter<std::string>("config", strSettingsFile))
         RCLCPP_ERROR(this->get_logger(), "FAIL TO LOAD config!");
-    if(!this->get_parameter<std::string>("net", netPath))
+    if(!this->get_parameter<std::string>("net", netFile))
         RCLCPP_ERROR(this->get_logger(), "FAIL TO LOAD net!");
 
     //Load Vocabulary

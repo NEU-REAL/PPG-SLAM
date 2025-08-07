@@ -26,9 +26,9 @@ def generate_launch_description():
                 name="ppg_slam_node",
                 output="screen",
                 parameters=[{
-                "vocabulary": '',
-                "config": '',
-                "net": ''}]
+                "vocabulary": 'install/ppg_slam/share/ppg_slam/Vocabulary/voc_tum_9x3.gz', # TODO: change the vocabulary here
+                "config": 'install/ppg_slam/share/ppg_slam/config/TUM-VI.yaml', # TODO: change the settings here
+                "net": 'install/ppg_slam/share/ppg_slam/net'}]
             )
         ]
     )
