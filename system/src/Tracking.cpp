@@ -872,26 +872,28 @@ void MSTracking::CreateNewKeyFrame()
     if (!MSLocalMapping::get().SetNotStop(true))
         return;
 
-    KeyFrame *pKF = mCurrentFrame.buildKeyFrame(mpMap); 
+    KeyFrame *pNewKF = mCurrentFrame.buildKeyFrame(mpMap); 
 
     if (mpMap->isImuInitialized())
-        pKF->bImu = true;
+        pNewKF->bImu = true;
 
-    pKF->SetNewBias(mCurrentFrame.mImuBias);
-    mpReferenceKF = pKF;
-    mCurrentFrame.mpReferenceKF = pKF;
+    pNewKF->SetNewBias(mCurrentFrame.mImuBias);
+    mpReferenceKF = pNewKF;
+    mCurrentFrame.mpReferenceKF = pNewKF;
 
     if (mpLastKeyFrame)
     {
-        pKF->mPrevKF = mpLastKeyFrame;
-        mpLastKeyFrame->mNextKF = pKF;
+        pNewKF->mPrevKF = mpLastKeyFrame;
+        mpLastKeyFrame->mNextKF = pNewKF;
     }
+    mpMap->IncreseMap(pNewKF);
+
+    MSLocalMapping::get().SetNotStop(false);
+    MSLocalMapping::get().InsertKeyFrame(pNewKF);
 
     // Reset preintegration from last KF (Create new object)
-    mpImuPreintegratedFromLastKF = new IMU::Preintegrated(pKF->GetImuBias(), mpImuCalib);
-    MSLocalMapping::get().increMap(pKF);
-    MSLocalMapping::get().SetNotStop(false);
-    mpLastKeyFrame = pKF;
+    mpImuPreintegratedFromLastKF = new IMU::Preintegrated(pNewKF->GetImuBias(), mpImuCalib);
+    mpLastKeyFrame = pNewKF;
 }
 
 void MSTracking::SearchLocalPoints()

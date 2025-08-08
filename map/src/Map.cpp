@@ -1,4 +1,5 @@
 #include<mutex>
+#include "Matcher.h"
 #include "Map.h"
 
 
@@ -15,6 +16,8 @@ Map::~Map()
 {
     mspMapPoints.clear();
     mspKeyFrames.clear();
+    mlpRecentAddedMapPoints.clear();
+
 }
 
 void Map::AddKeyFrame(KeyFrame *pKF)
@@ -175,7 +178,7 @@ void Map::clear()
     mbImuInitialized = false;
     mbIMU_BA1 = false;
     mbIMU_BA2 = false;
-
+    mlpRecentAddedMapPoints.clear();
     mvInvertedFile.clear();
     mvInvertedFile.resize(mpVoc->size());
 }
@@ -479,4 +482,249 @@ vector<KeyFrame*> Map::DetectRelocalizationCandidates(Frame *F)
         }
     }
     return vpRelocCandidates;
+}
+
+void Map::IncreseMap(KeyFrame* pNewKF)
+{
+    // Associate MapPoints to the new keyframe and update normal and descriptor
+    const vector<MapPoint*> vpMapPointMatches = pNewKF->GetMapPointMatches();
+
+    for(size_t i=0; i<vpMapPointMatches.size(); i++)
+    {
+        MapPoint* pMP = vpMapPointMatches[i];
+        if(pMP && !pMP->isBad())
+        {
+            pMP->AddObservation(pNewKF, i);
+            pMP->UpdateNormalAndDepth();
+            pMP->ComputeDistinctiveDescriptors();
+        }
+    }
+    // update Edge observation
+    for(unsigned int lid_cur=0; lid_cur<pNewKF->mvKeyEdges.size(); lid_cur++)
+    {
+        MapPoint* pMP1 = pNewKF->GetMapPoint(pNewKF->mvKeyEdges[lid_cur].startIdx);
+        MapPoint* pMP2 = pNewKF->GetMapPoint(pNewKF->mvKeyEdges[lid_cur].endIdx);
+        if(pMP1 == nullptr || pMP2 == nullptr || pMP1->isBad() || pMP2->isBad())
+            continue;
+        Eigen::Vector3f v_ = (pMP1->GetWorldPos() - pMP2->GetWorldPos()).normalized();
+        Eigen::Vector3f v1_ = (pNewKF->GetCameraCenter() - pMP1->GetWorldPos()).normalized();
+        Eigen::Vector3f v2_ = (pNewKF->GetCameraCenter() - pMP1->GetWorldPos()).normalized();
+        if(std::fabs(v_.dot(v1_))>MapEdge::viewCosTh || std::fabs(v_.dot(v2_))>MapEdge::viewCosTh)
+            continue;
+        MapEdge *pME = pMP1->getEdge(pMP2);
+        if(pME && !pME->isBad())
+        {
+            pNewKF->AddMapEdge(pME, lid_cur);
+            pME->addObservation(pNewKF, lid_cur);
+            pME->checkValid();
+        }
+    }
+    // update coline observation
+    for(unsigned int pid_cur=0; pid_cur<pNewKF->mvKeysUn.size(); pid_cur++)
+    {
+        MapPoint* pMP = pNewKF->GetMapPoint(pid_cur);
+        if(pMP == nullptr || pMP->isBad())
+            continue;   
+        const KeyPointEx &kp_cur = pNewKF->mvKeysUn[pid_cur];
+        for(auto cp_cur : kp_cur.mvColine)
+        {
+            MapPoint* pMPs = pNewKF->GetMapPoint(cp_cur.first);
+            MapPoint* pMPe = pNewKF->GetMapPoint(cp_cur.second);
+            if(pMPs == nullptr || pMPe == nullptr || pMPs->isBad() || pMPe->isBad())
+                continue;
+            MapColine* pMC = pMP->addColine(pMPs, pMPe, pNewKF);
+            if(pMC)
+                AddMapColine(pMC);
+        }
+    }
+
+    // Check Recent Added MapPoints
+    list<MapPoint*>::iterator lit = mlpRecentAddedMapPoints.begin();
+    const unsigned long int nCurrentKFid = pNewKF->mnId;
+
+    int borrar = mlpRecentAddedMapPoints.size();
+
+    while(lit!=mlpRecentAddedMapPoints.end())
+    {
+        MapPoint* pMP = *lit;
+        if(pMP->isBad())
+            lit = mlpRecentAddedMapPoints.erase(lit);
+        else if(pMP->GetFoundRatio()<0.25f)
+        {
+            pMP->SetBadFlag();
+            EraseMapPoint(pMP);
+            lit = mlpRecentAddedMapPoints.erase(lit);
+        }
+        else if(((int)nCurrentKFid-(int)pMP->mnFirstKFid)>=2 && pMP->Observations()<=2)
+        {
+            pMP->SetBadFlag();
+            EraseMapPoint(pMP);
+            lit = mlpRecentAddedMapPoints.erase(lit);
+        }
+        else if(((int)nCurrentKFid-(int)pMP->mnFirstKFid)>=3)
+            lit = mlpRecentAddedMapPoints.erase(lit);
+        else
+        {
+            lit++;
+            borrar--;
+        }
+    }
+    // Retrieve neighbor keyframes in covisibility graph
+    unsigned int nn = 5;
+    vector<KeyFrame*> vpNeighKFs;
+    KeyFrame* pKF = pNewKF;
+    unsigned int count=0; 
+    while((vpNeighKFs.size()<=nn)&&(pKF->mPrevKF)&&(count++<nn))
+    {
+        vector<KeyFrame*>::iterator it = std::find(vpNeighKFs.begin(), vpNeighKFs.end(), pKF->mPrevKF);
+        if(it==vpNeighKFs.end())
+            vpNeighKFs.push_back(pKF->mPrevKF);
+        pKF = pKF->mPrevKF;
+    }
+    float th = 0.6f;
+    Matcher matcher(mpCamera, th);
+
+    Sophus::SE3<float> sophTcw1 = pNewKF->GetPose();
+    Eigen::Matrix<float,3,4> eigTcw1 = sophTcw1.matrix3x4();
+    Eigen::Matrix<float,3,3> Rcw1 = eigTcw1.block<3,3>(0,0);
+    Eigen::Matrix<float,3,3> Rwc1 = Rcw1.transpose();
+    Eigen::Vector3f tcw1 = sophTcw1.translation();
+    Eigen::Vector3f Ow1 = pNewKF->GetCameraCenter();
+
+    // Search matches with epipolar restriction and triangulate
+    for(size_t i=0; i<vpNeighKFs.size(); i++)
+    {
+        KeyFrame* pKF2 = vpNeighKFs[i];
+
+        GeometricCamera* pCamera = mpCamera;
+        // Search matches that fullfil epipolar constraint
+        vector<pair<size_t,size_t> > vMatchedIndices;
+        matcher.SearchForTriangulation(pNewKF, pKF2, vMatchedIndices, true);
+
+        Sophus::SE3<float> sophTcw2 = pKF2->GetPose();
+        Eigen::Matrix<float,3,4> eigTcw2 = sophTcw2.matrix3x4();
+        Eigen::Matrix<float,3,3> Rcw2 = eigTcw2.block<3,3>(0,0);
+        Eigen::Matrix<float,3,3> Rwc2 = Rcw2.transpose();
+        Eigen::Vector3f tcw2 = sophTcw2.translation();
+
+        // Triangulate each match
+        const int nmatches = vMatchedIndices.size();
+        for(int ikp=0; ikp<nmatches; ikp++)
+        {
+            const int &idx1 = vMatchedIndices[ikp].first;
+            const int &idx2 = vMatchedIndices[ikp].second;
+
+            const KeyPointEx &kp1 = pNewKF->mvKeysUn[idx1];
+            const KeyPointEx &kp2 =pKF2->mvKeysUn[idx2];
+
+            // Check parallax between rays
+            Eigen::Vector3f xn1 = pCamera->unproject(kp1.mPos);
+            Eigen::Vector3f xn2 = pCamera->unproject(kp2.mPos);
+
+            Eigen::Matrix4f A;
+            A.block<1,4>(0,0) = xn1(0) * eigTcw1.block<1,4>(2,0) - eigTcw1.block<1,4>(0,0);
+            A.block<1,4>(1,0) = xn1(1) * eigTcw1.block<1,4>(2,0) - eigTcw1.block<1,4>(1,0);
+            A.block<1,4>(2,0) = xn2(0) * eigTcw2.block<1,4>(2,0) - eigTcw2.block<1,4>(0,0);
+            A.block<1,4>(3,0) = xn2(1) * eigTcw2.block<1,4>(2,0) - eigTcw2.block<1,4>(1,0);
+            Eigen::JacobiSVD<Eigen::Matrix4f> svd(A, Eigen::ComputeFullV);
+            Eigen::Vector4f x3Dh = svd.matrixV().col(3);
+            if(x3Dh(3)==0)
+                continue;
+            // Euclidean coordinates
+            Eigen::Vector3f x3D = x3Dh.head(3)/x3Dh(3);
+
+            //Check triangulation in front of cameras
+            float z1 = Rcw1.row(2).dot(x3D) + tcw1(2);
+            if(z1<=0)
+                continue;
+
+            float z2 = Rcw2.row(2).dot(x3D) + tcw2(2);
+            if(z2<=0)
+                continue;
+
+            //Check reprojection error in first keyframe
+            const float x1 = Rcw1.row(0).dot(x3D)+tcw1(0);
+            const float y1 = Rcw1.row(1).dot(x3D)+tcw1(1);
+
+            Eigen::Vector2f uv1 = pCamera->project(Eigen::Vector3f(x1,y1,z1));
+            float errX1 = uv1[0] - kp1.mPos[0];
+            float errY1 = uv1[1] - kp1.mPos[1];
+            if((errX1*errX1+errY1*errY1)>5.991)
+                continue;
+
+            //Check reprojection error in second keyframe
+            const float x2 = Rcw2.row(0).dot(x3D)+tcw2(0);
+            const float y2 = Rcw2.row(1).dot(x3D)+tcw2(1);
+
+            Eigen::Vector2f uv2 = pCamera->project(Eigen::Vector3f(x2,y2,z2));
+            float errX2 = uv2[0] - kp2.mPos[0];
+            float errY2 = uv2[1] - kp2.mPos[1];
+            if((errX2*errX2+errY2*errY2)>5.991)
+                continue;
+
+            // Triangulation is succesfull
+            MapPoint* pMP = new MapPoint(x3D, pNewKF);
+
+            pMP->AddObservation(pNewKF,idx1);
+            pMP->AddObservation(pKF2,idx2);
+
+            pNewKF->AddMapPoint(pMP,idx1);
+            pKF2->AddMapPoint(pMP,idx2);
+
+            pMP->ComputeDistinctiveDescriptors();
+
+            pMP->UpdateNormalAndDepth();
+
+            AddMapPoint(pMP);
+            mlpRecentAddedMapPoints.push_back(pMP);
+        }
+        for( unsigned int lid_cur=0 ; lid_cur < pNewKF->mvKeyEdges.size(); lid_cur++)
+        {
+            MapEdge* pME = pNewKF->GetMapEdge(lid_cur);
+            if(pME && !pME->isBad())
+                continue;
+            KeyEdge ke_cur = pNewKF->mvKeyEdges[lid_cur];
+            MapPoint *pMP1 = pNewKF->GetMapPoint(ke_cur.startIdx);
+            MapPoint *pMP2 = pNewKF->GetMapPoint(ke_cur.endIdx);
+            if(pMP1 == nullptr || pMP2 == nullptr || pMP1->isBad() || pMP2->isBad())
+                continue;
+            Eigen::Vector3f v_ = (pMP1->GetWorldPos() - pMP2->GetWorldPos()).normalized();
+            Eigen::Vector3f v1_ = (pNewKF->GetCameraCenter() - pMP1->GetWorldPos()).normalized();
+            Eigen::Vector3f v2_ = (pNewKF->GetCameraCenter() - pMP2->GetWorldPos()).normalized();
+            if(std::fabs(v_.dot(v1_))>MapEdge::viewCosTh || std::fabs(v_.dot(v2_))>MapEdge::viewCosTh)
+                continue;
+            pME = pMP1->getEdge(pMP2);
+            if(pME && !pME->isBad())
+            {
+                pNewKF->AddMapEdge(pME, lid_cur);
+                pME->addObservation(pNewKF, lid_cur);
+                continue;
+            }
+            pME = new MapEdge(pMP1, pMP2, this);
+            pNewKF->AddMapEdge(pME, lid_cur);
+            pME->addObservation(pNewKF, lid_cur);
+            AddMapEdge(pME);
+        }
+        // add colines
+        for(unsigned int pid_cur=0; pid_cur<pNewKF->mvKeysUn.size(); pid_cur++)
+        {
+            MapPoint* pMP = pNewKF->GetMapPoint(pid_cur);
+            if(pMP == nullptr || pMP->isBad())
+                continue;   
+            const KeyPointEx &kp_cur = pNewKF->mvKeysUn[pid_cur];
+            for(auto cp_cur : kp_cur.mvColine)
+            {
+                MapPoint* pMP1 = pNewKF->GetMapPoint(cp_cur.first);
+                MapPoint* pMP2 = pNewKF->GetMapPoint(cp_cur.second);
+                if(pMP1 == nullptr || pMP2 == nullptr || pMP1->isBad() || pMP2->isBad())
+                    continue;
+                MapColine* pMC = pMP->addColine(pMP1, pMP2, pNewKF);
+                if(pMC)
+                    AddMapColine(pMC);
+            }
+        }
+    }    
+
+    // Insert Keyframe in Map
+    AddKeyFrame(pNewKF);  
 }

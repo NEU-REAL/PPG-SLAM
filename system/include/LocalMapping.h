@@ -38,7 +38,6 @@ public:
     void Run();
 
     void InsertKeyFrame(KeyFrame *pKF);
-    void increMap(KeyFrame* pnewKF);
     void EmptyQueue();
 
     // Thread Synch
@@ -94,7 +93,6 @@ public:
 
     KeyFrame *mpCurrentKeyFrame;
 
-    std::list<MapPoint *> mlpRecentAddedMapPoints;
     std::list<MapEdge *> mlpRecentAddedMapEdges;
     std::list<MapColine *> mlpRecentAddedMapColines;
 
