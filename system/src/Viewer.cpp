@@ -202,7 +202,7 @@ cv::Mat MSViewing::DrawFrame()
                 pt2 = cv::Point2f(vCurrentKeys[cpt.second].mPos[0],vCurrentKeys[cpt.second].mPos[1]);
                 cv::line(im,pt1, pt2, cv::Scalar(20,20,255),2);
             }
-        }
+        } 
     }
     // draw edges
     if(mbShowEdge)
