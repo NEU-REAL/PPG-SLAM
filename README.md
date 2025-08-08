@@ -5,7 +5,7 @@ PPG-SLAM: Real-Time and Robust Visual-Inertial SLAM with Point-Pair Graph
 
 **System Overview:**
 
-![Overview](./misc/system.png "System Overview")
+![Overview](./misc/SystemOverview.png "System Overview")
 
 
 ## 1. Introduction
