@@ -48,7 +48,7 @@ Launch rviz and SLAM system. Please note that you should change the `Launch/laun
 ~/ws_ppgslam$ ros2 launch ppg_slam 
 ```
 
-Working with open access datasets. We provide tools for [EuRoC MAV](http://robotics.ethz.ch/~asl-datasets/ijrr_euroc_mav_dataset/), [TUM VI](https://cvg.cit.tum.de/data/datasets/visual-inertial-dataset), and [UMA-VI](https://mapir.isa.uma.es/mapirwebsite/?p=2108&page=2) playback with ros2 topic. Please download the zip file and unzip it, then you can play the datasets by:
+Working with open access datasets. We provide tools for [EuRoC MAV](http://robotics.ethz.ch/~asl-datasets/ijrr_euroc_mav_dataset/) and [UMA-VI](https://mapir.isa.uma.es/mapirwebsite/?p=2108&page=2) playback with ros2 topic. Please download the zip file and unzip it, then you can play the datasets by:
 
 ```
 ~/ws_ppgslam$ ros2 run ppg_slam pub_euroc_node <Path to EuRoC MAV dataset>
