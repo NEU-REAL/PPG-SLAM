@@ -55,6 +55,14 @@ Working with open access datasets. We provide tools for [EuRoC MAV](http://robot
 ~/ws_ppgslam$ ros2 run ppg_slam pub_uma_node <Path to UMA VI dataset>
 ```
 
+## 5. Run without ROS
+
+We have provided a version not under ROS, which can be switched by:
+
+```
+git checkout UI
+```
+
 
 ## 5. Acknowledgments
 
