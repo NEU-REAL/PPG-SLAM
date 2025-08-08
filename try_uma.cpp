@@ -35,7 +35,7 @@ int main(int argc, char *argv[])
     vImagePath.reserve(6000);
     vImageTimeStamp.reserve(6000);
     ifstream fimage;
-    fimage.open(dataFolder+ "/mav0/cam0/data.csv");
+    fimage.open(dataFolder+ "/cam0/data.csv");
     while(!fimage.eof())
     {
         string s;
@@ -46,7 +46,7 @@ int main(int argc, char *argv[])
                 continue;
             int pos = s.find(',');
             string item = s.substr(0, pos);
-            vImagePath.push_back(dataFolder + "/mav0/cam0/data/" + item + ".png");
+            vImagePath.push_back(dataFolder + "/cam0/data/" + item + ".png");
             vImageTimeStamp.push_back(stod(item) * 1e-9);
         }
     }
@@ -56,7 +56,7 @@ int main(int argc, char *argv[])
     vImuGyr.reserve(60000);
     vImuTimestamp.reserve(60000);
     ifstream fImu;
-    fImu.open(dataFolder + "/mav0/imu0/data.csv");
+    fImu.open(dataFolder + "/imu0/data.csv");
     
     while(!fImu.eof())
     {
@@ -111,7 +111,7 @@ int main(int argc, char *argv[])
     for(unsigned int ni=0; ni<vImagePath.size(); ni++, proccIm++)
     {
         // Read image from file
-        im = cv::imread(vImagePath[ni], cv::IMREAD_UNCHANGED); // CV_LOAD_IMAGE_UNCHANGED);
+        im = cv::imread(vImagePath[ni], 0); // CV_LOAD_IMAGE_UNCHANGED);
         if (im.empty())
         {
             cerr << endl

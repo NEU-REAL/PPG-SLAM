@@ -35,6 +35,7 @@ include_directories(
     ${PROJECT_SOURCE_DIR}/system/include
 )
 
+add_subdirectory(${PROJECT_SOURCE_DIR}/Thirdparty/g2o)
 add_subdirectory(${PROJECT_SOURCE_DIR}/sensors)
 add_subdirectory(${PROJECT_SOURCE_DIR}/feature)
 add_subdirectory(${PROJECT_SOURCE_DIR}/matching)

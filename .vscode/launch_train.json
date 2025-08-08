@@ -8,7 +8,7 @@
             "name": "(gdb) Launch",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/train_vocabulary",
+            "program": "${workspaceFolder}/bin/train_vocabulary",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",

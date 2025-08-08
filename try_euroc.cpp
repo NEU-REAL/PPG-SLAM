@@ -111,7 +111,7 @@ int main(int argc, char *argv[])
     for(unsigned int ni=0; ni<vImagePath.size(); ni++, proccIm++)
     {
         // Read image from file
-        im = cv::imread(vImagePath[ni], cv::IMREAD_UNCHANGED); // CV_LOAD_IMAGE_UNCHANGED);
+        im = cv::imread(vImagePath[ni], 0); // CV_LOAD_IMAGE_UNCHANGED);
         if (im.empty())
         {
             cerr << endl
