@@ -2,8 +2,7 @@
 #include "Matcher.h"
 #include "Map.h"
 
-
-float Map::imuIniTm = 5;
+double Map::imuIniTm = 5.;
 
 Map::Map(GeometricCamera* pCam, IMU::Calib *pImu, DBoW3::Vocabulary *pVoc) : mpCamera(pCam), 
     mpImuCalib(pImu), mnMaxKFid(0), mbImuInitialized(false), 

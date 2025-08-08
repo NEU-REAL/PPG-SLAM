@@ -14,7 +14,7 @@
 
 using namespace std;
 
-void MSTracking::Launch(Map* pMap, const std::string netFile)
+void MSTracking::Launch(Map* pMap, const string &strNet)
 {
     mState = NO_IMAGES_YET;
     mLastProcessedState = NO_IMAGES_YET;
@@ -30,68 +30,24 @@ void MSTracking::Launch(Map* pMap, const std::string netFile)
     mpCamera = pMap->mpCamera;
     mpImuCalib = pMap->mpImuCalib;
 
-    mpExtractor = new PPGExtractor(mpCamera, netFile);
+    mpExtractor = new PPGExtractor(mpCamera, strNet);
 
     mpImuPreintegratedFromLastKF = new IMU::Preintegrated(IMU::Bias(), mpImuCalib);
 }
 
 
-cv::Mat MSTracking::GrabImageMonocular(const cv::Mat &im, const double &timestamp)
+Sophus::SE3f MSTracking::GrabImageMonocular(const cv::Mat &im, const double &timestamp, string filename)
 {
     mImGray = im;
     mCurrentFrame = Frame(mImGray, timestamp, mpExtractor, mpCamera, mpImuCalib, &mLastFrame);
     Track();
-
-    cv::Mat ret = DrawFrame();
-    return ret;
+    return mCurrentFrame.GetPose();
 }
 
 void MSTracking::GrabImuData(const IMU::Point &imuMeasurement)
 {
     unique_lock<mutex> lock(mMutexImuQueue);
     mlQueueImuData.push_back(imuMeasurement);
-}
-
-cv::Mat MSTracking::DrawFrame()
-{
-    cv::Mat showMat;
-    cv::cvtColor(mImGray,showMat, cv::COLOR_GRAY2BGR);
-
-    std::vector<KeyPointEx> &vCurrentKeys = mCurrentFrame.mvKeys;
-    std::vector<KeyEdge> &vCurrentEdges = mCurrentFrame.mvKeyEdges;
-    std::vector<MapPoint*> &vpMapPoints = mCurrentFrame.mvpMapPoints;
-    for(KeyPointEx kp : vCurrentKeys)
-    {
-        for(std::pair<unsigned int, unsigned int> cpt : kp.mvColine)
-        {
-            cv::Point2f pt1,pt2;
-            pt1 = cv::Point2f(vCurrentKeys[cpt.first].mPos[0],vCurrentKeys[cpt.first].mPos[1]);
-            pt2 = cv::Point2f(vCurrentKeys[cpt.second].mPos[0],vCurrentKeys[cpt.second].mPos[1]);
-            cv::line(showMat,pt1, pt2, cv::Scalar(20,20,255),2);
-        }
-    }
-    for(KeyEdge ke : vCurrentEdges)
-    {
-        const KeyPointEx &kp1 = vCurrentKeys[ke.startIdx];
-        const KeyPointEx &kp2 = vCurrentKeys[ke.endIdx];
-        cv::line(showMat, cv::Point2f(kp1.mPos[0],kp1.mPos[1]), cv::Point2f(kp2.mPos[0],kp2.mPos[1]), cv::Scalar(0,255,0),1);
-        cv::circle(showMat, cv::Point2f(kp1.mPos[0],kp1.mPos[1]), 3, cv::Scalar(0,255,0), -1);
-        cv::circle(showMat, cv::Point2f(kp2.mPos[0],kp2.mPos[1]), 3, cv::Scalar(0,255,0), -1);
-    }
-    for(unsigned int i=0; i<vCurrentKeys.size(); i++)
-    {
-        MapPoint * pMP = vpMapPoints[i];
-        if(pMP == nullptr || pMP->isBad())
-            continue;
-        cv::circle(showMat, cv::Point2f(vCurrentKeys[i].mPos[0],vCurrentKeys[i].mPos[1]), 3, cv::Scalar(125,255,0),1);
-    }
-    return showMat;
-}
-
-double MSTracking::GetLatestImuTs()
-{
-    unique_lock<mutex> lock(mMutexImuQueue);
-    return mlQueueImuData.front().t;
 }
 
 void MSTracking::PreintegrateIMU()
@@ -255,6 +211,13 @@ void MSTracking::ResetFrameIMU()
 
 void MSTracking::Track()
 {
+    if (MSViewing::get().mbStepByStep)
+    {
+        std::cout << "Tracking: Waiting to the next step" << std::endl;
+        while (!MSViewing::get().mbStep && MSViewing::get().mbStepByStep)
+            usleep(500);
+        MSViewing::get().mbStep = false;
+    }
     if (mState != NO_IMAGES_YET && (mLastFrame.mTimeStamp > mCurrentFrame.mTimeStamp || mCurrentFrame.mTimeStamp > mLastFrame.mTimeStamp + 1.0))
     {
         cerr << "ERROR: Frame with a timestamp older than previous frame detected!" << endl;
@@ -281,6 +244,7 @@ void MSTracking::Track()
     if (mState == NOT_INITIALIZED)
     {
         MonocularInitialization();
+        MSViewing::get().UpdateFrame(mCurrentFrame);
         if (mState != OK) // If rightly initialized, mState=OK
             mLastFrame = Frame(mCurrentFrame);
         else
@@ -433,6 +397,11 @@ void MSTracking::Track()
                 mlbLost.push_back(mState == LOST);
             }
         }
+
+        // Update drawer
+        MSViewing::get().UpdateFrame(mCurrentFrame);
+        if (mCurrentFrame.HasPose())
+            MSViewing::get().SetCurrentCameraPose(mCurrentFrame.GetPose());
 
         if (!mCurrentFrame.mpReferenceKF)
             mCurrentFrame.mpReferenceKF = mpReferenceKF;
@@ -661,6 +630,8 @@ void MSTracking::CreateInitialMapMonocular()
     mCurrentFrame.mpReferenceKF = pKFcur;
 
     mLastFrame = Frame(mCurrentFrame);
+
+    MSViewing::get().SetCurrentCameraPose(pKFcur->GetPose());
 
     mState = OK;
 }

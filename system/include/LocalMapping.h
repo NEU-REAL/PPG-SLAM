@@ -76,6 +76,10 @@ public:
 public:
     bool CheckNewKeyFrames();
     void ProcessNewKeyFrame();
+    void UpdateNewKeyFrame();
+    void CreateNewMapPoints();
+
+    void MapPointCulling();
     void SearchInNeighbors();
     void KeyFrameCulling();
 

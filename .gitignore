@@ -3,3 +3,5 @@ lib
 bin
 Thirdparty/g2o/build
 Thirdparty/g2o/lib
+install
+log

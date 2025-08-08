@@ -2,7 +2,7 @@
 
 unsigned long int MapEdge::mnNextId = 0;
 unsigned long int MapColine::mnNextId = 0;
-float MapEdge::viewCosTh = 0.9;
+double MapEdge::viewCosTh = 0.9;
 
 MapEdge::MapEdge(MapPoint* ps, MapPoint* pe, Map* pMap) : 
 	mpMPs(ps), mpMPe(pe), mpMap(pMap), mbBad(false), mbValid(false)

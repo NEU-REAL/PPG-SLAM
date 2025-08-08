@@ -7,10 +7,12 @@
 
 #include "KeyFrame.h"
 #include "LocalMapping.h"
+#include "Viewer.h"
 #include "Optimizer.h"
 
 class LocalMapping;
 class Map;
+class Viewer;
 
 class MSLoopClosing
 {

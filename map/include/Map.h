@@ -98,8 +98,7 @@ protected:
 public:
     // Associated vocabulary
     DBoW3::Vocabulary* mpVoc;
-    static float viewCosTh;
-    static float imuIniTm;
+    static double imuIniTm;
 private:
     // Inverted file
     std::vector<list<KeyFrame*> > mvInvertedFile;

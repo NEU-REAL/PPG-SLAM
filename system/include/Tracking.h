@@ -1,17 +1,21 @@
 #pragma once
-#include <mutex>
-#include <unordered_set>
+
 #include <opencv2/core/core.hpp>
 #include <opencv2/features2d/features2d.hpp>
+#include <atomic>
 
+#include "Viewer.h"
 #include "LocalMapping.h"
 #include "LoopClosing.h"
 #include "Frame.h"
 #include "PPGExtractor.h"
 #include "System.h"
 #include "IMU.h"
+
 #include "GeometricCamera.h"
 
+#include <mutex>
+#include <unordered_set>
 
 class LocalMapping;
 class LoopClosing;
@@ -45,12 +49,11 @@ private:
     
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-    void Launch(Map* pMap, const std::string netFile);
+    void Launch(Map* pMap, const string &strNet);
 
     // Preprocess the input and call Track(). Extract features and performs stereo matching.
-    cv::Mat GrabImageMonocular(const cv::Mat &im, const double &timestamp);
+    Sophus::SE3f GrabImageMonocular(const cv::Mat &im, const double &timestamp, string filename);
     void GrabImuData(const IMU::Point &imuMeasurement);
-    double GetLatestImuTs();
 
     void UpdateFrameIMU(const float s, const IMU::Bias &b, KeyFrame* pCurrentKeyFrame);
 
@@ -59,8 +62,6 @@ public:
     int GetMatchesInliers();
 
     void Reset();
-
-    cv::Mat DrawFrame();
     
 public:
 

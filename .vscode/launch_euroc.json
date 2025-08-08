@@ -12,7 +12,7 @@
             "args": ["${workspaceFolder}/Vocabulary/voc_euroc_9x3.gz",
                     "${workspaceFolder}/config/EuRoC.yaml",
                     "${workspaceFolder}/net",
-                    "/home/z/Datasets/euroc/MH_01_easy"],
+                    "/home/z/Datasets/euroc/MH_04_difficult"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],

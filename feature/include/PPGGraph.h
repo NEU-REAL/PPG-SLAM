@@ -48,7 +48,6 @@ public:
     void checkValid();
     bool isBad();
     Map* GetMap();
-    static float viewCosTh;
     
 public:
     unsigned long int mnId;
@@ -60,7 +59,7 @@ public:
     unsigned long int mnBALocalForKF;
     // for visualizing
     unsigned int long trackedFrameId;
-
+    static double viewCosTh;
     std::chrono::steady_clock::time_point startTime;
 private:
     std::map<KeyFrame*, int> mObservations;

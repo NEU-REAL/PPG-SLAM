@@ -34,6 +34,10 @@ void MSLocalMapping::Run()
         {
             // // BoW conversion and insertion in Map
             ProcessNewKeyFrame();
+            // // Check recent MapPoints
+            // MapPointCulling(); //FIXME 有没有对位姿估计精度影响不显著
+            // // Triangulate new MapPoints
+            // CreateNewMapPoints();
 
             mbAbortBA = false;
 
@@ -68,7 +72,7 @@ void MSLocalMapping::Run()
                     InitializeIMU(1e2, 1e10, true);
                 else 
                 {
-                    if (!mpMap->GetIniertialBA1() && mTinit > Map::imuIniTm) // TODO:imu initialization time, 10for euroc ,5 for uma, 10 for tum \\ warning IMU 初始化时间对结果影响很大
+                    if (!mpMap->GetIniertialBA1() && mTinit>Map::imuIniTm) // TODO:imu initialization time, 10for euroc ,5 for uma, 10 for tum \\ warning IMU 初始化时间对结果影响很大
                     {
                         cout << "start visual inertial BA" << endl;
                         mpMap->SetIniertialBA1();
@@ -114,21 +118,6 @@ bool MSLocalMapping::CheckNewKeyFrames()
 {
     unique_lock<mutex> lock(mMutexNewKFs);
     return(!mlNewKeyFrames.empty());
-}
-
-void MSLocalMapping::ProcessNewKeyFrame()
-{
-    {
-        unique_lock<mutex> lock(mMutexNewKFs);
-        mpCurrentKeyFrame = mlNewKeyFrames.front();
-        mlNewKeyFrames.pop_front();
-    }
-}
-
-void MSLocalMapping::EmptyQueue()
-{
-    while(CheckNewKeyFrames())
-        ProcessNewKeyFrame();
 }
 
 void MSLocalMapping::SearchInNeighbors()
@@ -741,4 +730,19 @@ double MSLocalMapping::GetCurrKFTime()
 KeyFrame* MSLocalMapping::GetCurrKF()
 {
     return mpCurrentKeyFrame;
+}
+
+void MSLocalMapping::ProcessNewKeyFrame()
+{
+    {
+        unique_lock<mutex> lock(mMutexNewKFs);
+        mpCurrentKeyFrame = mlNewKeyFrames.front();
+        mlNewKeyFrames.pop_front();
+    }
+}
+
+void MSLocalMapping::EmptyQueue()
+{
+    while(CheckNewKeyFrames())
+        ProcessNewKeyFrame();
 }

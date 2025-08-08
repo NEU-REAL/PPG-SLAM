@@ -4,14 +4,19 @@
             "name": "Linux",
             "includePath": [
                 "${workspaceFolder}/**",
-                "/opt/ros/humble/include/**",
-                "/usr/local/include/opencv4"
+                "/home/z/libtorch/include/torch/csrc/api/include",
+                "/home/z/libtorch/include",
+                "/usr/include/eigen3",
+                "${workspaceFolder}/include",
+                "/usr/include/x86_64-linux-gnu/c++/6",
+                "/usr/include/x86_64-linux-gnu/c++/7",
             ],
             "defines": [],
-            "compilerPath": "/usr/bin/clang-14",
-            "cStandard": "c17",
-            "cppStandard": "c++14",
-            "intelliSenseMode": "linux-clang-x64"
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c11",
+            "cppStandard": "gnu++14",
+            "intelliSenseMode": "linux-gcc-x64",
+            "configurationProvider": "ms-vscode.cmake-tools"
         }
     ],
     "version": 4

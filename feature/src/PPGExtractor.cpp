@@ -211,10 +211,8 @@ void PPGExtractor::detectKeyPoint()
 	{
 		float u = mat.at<float>(i,0);
 		float v = mat.at<float>(i,1);
-		if(u>=1 && u < mnImWidth-1 && v>=1 && v<mnImHeight-1) // 1 is the border of edge mat
+		if(u>=0 && u < mnImWidth && v>=0 && v<mnImHeight)
 			mvKeyPoints[i].mbOut = false;
-		else
-			mvKeyPoints[i].mbOut = true;
 		mvKeyPoints[i].mPosUn << mat.at<float>(i,0),  mat.at<float>(i,1);
 	}
 }
