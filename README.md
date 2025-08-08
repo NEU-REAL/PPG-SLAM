@@ -64,7 +64,7 @@ git checkout UI
 ```
 
 
-## 5. Acknowledgments
+## 6. Acknowledgments
 
 Thanks for [ORB_SLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3), [AirSLAM](https://github.com/sair-lab/AirSLAM), [SOLD2](https://github.com/cvg/SOLD2), and [SuperPoint](https://github.com/magicleap/SuperPointPretrainedNetwork). 
 
