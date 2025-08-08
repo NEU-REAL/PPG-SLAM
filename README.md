@@ -26,33 +26,29 @@ OpenCV >= 4.0.0,  Follow [Opencv Installation](http://opencv.org/).
 
 LibTorch (CUDA >=12.6),  Follow [LibTorch Installation](https://pytorch.org/get-started/locally/).
 
+Pangolin,  Follow [Pangolin Installation](github.com/stevenlovegrove/Pangolin).
+
 ## 3. Build
 
-Clone the repository and colcon build:
+Clone the repository and build with cmake:
 
 ```
-mkdir -p ws_ppgslam/src
-cd ~/ws_ppgslam/src
 git clone https://github.com/NEU-REAL/PPG-SLAM
-cd ../
-colcon build
+cd PPG-SLAM
+mkdir build
+cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j
 ```
 
 ## 4. Run the package
 
-
-Launch rviz and SLAM system. Please note that you should change the `Launch/launch.py` to adapt the datasets. The system config files are stored in `config`. The vocabulary is stored in `Vocabulary`. The trained model is stored in `net`.
-
-```
-~/ws_ppgslam$ source ~/catkin_ws/install/setup.bash
-~/ws_ppgslam$ ros2 launch ppg_slam 
-```
-
-Working with open access datasets. We provide tools for [EuRoC MAV](http://robotics.ethz.ch/~asl-datasets/ijrr_euroc_mav_dataset/) and [UMA-VI](https://mapir.isa.uma.es/mapirwebsite/?p=2108&page=2) playback with ros2 topic. Please download the zip file and unzip it, then you can play the datasets by:
+Working with open access datasets. We provide instructions for [EuRoC MAV](http://robotics.ethz.ch/~asl-datasets/ijrr_euroc_mav_dataset/), [TUM-VI](https://cvg.cit.tum.de/data/datasets/visual-inertial-dataset), and [UMA-VI](https://mapir.isa.uma.es/mapirwebsite/?p=2108&page=2) Please download the zip file and unzip it, then you can play the datasets by:
 
 ```
-~/ws_ppgslam$ ros2 run ppg_slam pub_euroc_node <Path to EuRoC MAV dataset>
-~/ws_ppgslam$ ros2 run ppg_slam pub_uma_node <Path to UMA VI dataset>
+./bin/mono_inertial_euroc Vocabulary/voc_euroc_9x3.gz config/EuRoC.yaml net <Path to dataset>
+./bin/mono_inertial_tum Vocabulary/voc_tum_9x3.gz config/TUM-VI.yaml net <Path to dataset>
+./bin/mono_inertial_uma Vocabulary/voc_tum_9x3.gz config/UMA.yaml net <Path to dataset>
 ```
 
 
