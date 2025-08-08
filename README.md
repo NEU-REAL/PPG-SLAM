@@ -52,7 +52,6 @@ Working with open access datasets. We provide tools for [EuRoC MAV](http://robot
 
 ```
 ~/ws_ppgslam$ ros2 run ppg_slam pub_euroc_node <Path to EuRoC MAV dataset>
-~/ws_ppgslam$ ros2 run ppg_slam pub_tum_node <Path to TUM VI dataset>
 ~/ws_ppgslam$ ros2 run ppg_slam pub_uma_node <Path to UMA VI dataset>
 ```
 
