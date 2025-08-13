@@ -104,7 +104,6 @@ public:
 
     // --- Global settings ---
     static std::mutex mGlobalMutex;
-    static float COS_TH;
 
     // --- Core data ---
     Eigen::Vector3f mWorldPos;                    ///< 3D position in world

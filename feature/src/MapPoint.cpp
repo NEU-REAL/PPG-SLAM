@@ -7,7 +7,6 @@
 using namespace std;
 
 long unsigned int MapPoint::nNextId=0;
-float MapPoint::COS_TH = 0.90;  // 0.9 for uma,euroc, 0.8 for tum
 std::mutex MapPoint::mGlobalMutex;
 std::mutex MapPoint::mMutexPointCreation;
 
