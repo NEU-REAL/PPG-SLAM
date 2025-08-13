@@ -659,7 +659,7 @@ void Map::IncreMap(KeyFrame* pNewKF)
             pME->addObservation(pNewKF, lid_cur);
             pME->checkValid();
         }
-        pME = new MapEdge(pMP1, pMP2, this);
+        pME = new MapEdge(pMP1, pMP2);
         pNewKF->AddMapEdge(pME, lid_cur);
         pME->addObservation(pNewKF, lid_cur);
         AddMapEdge(pME);

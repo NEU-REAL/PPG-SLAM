@@ -533,7 +533,7 @@ void MSTracking::CreateInitialMapMonocular()
         Eigen::Vector3f v2_ = (pKFcur->GetCameraCenter() - pMP2->GetWorldPos()).normalized();
         if(std::fabs(v_.dot(v1_))>MapEdge::viewCosTh || std::fabs(v_.dot(v2_))>MapEdge::viewCosTh)
             continue;
-        MapEdge * pME = new MapEdge(pMP1, pMP2, mpMap);
+        MapEdge * pME = new MapEdge(pMP1, pMP2);
         pME->addObservation(pKFcur, lid_cur);
         pKFcur->AddMapEdge(pME, lid_cur);
         mpMap->AddMapEdge(pME);

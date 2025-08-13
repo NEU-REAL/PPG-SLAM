@@ -11,7 +11,6 @@
 
 class KeyFrame;
 class MapPoint;
-class Map;
 
 class KeyEdge
 {
@@ -41,19 +40,17 @@ class MapEdge
 {
 public:
     // FIXME ::这样实例化：： createNewEdge();
-    MapEdge(MapPoint* ps, MapPoint* pe, Map* pMap);
+    MapEdge(MapPoint* ps, MapPoint* pe);
     MapPoint *theOtherPt(MapPoint* pMP);
     void addObservation(KeyFrame* pKF, unsigned int keyId);
     std::map<KeyFrame*, int> getObservations();
     void checkValid();
     bool isBad();
-    Map* GetMap();
     
 public:
     unsigned long int mnId;
     static unsigned long int mnNextId;
     MapPoint *mpMPs, *mpMPe;
-    Map* mpMap;
     bool mbBad, mbValid;
 
     unsigned long int mnBALocalForKF;

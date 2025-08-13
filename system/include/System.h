@@ -15,7 +15,9 @@
 #include "KannalaBrandt8.h"
 #include "Pinhole.h"
 #include "GeometricCamera.h"
+#include "Map.h"
 
+class Map;
 class Tracking;
 class LocalMapping;
 class LoopClosing;

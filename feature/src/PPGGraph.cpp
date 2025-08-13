@@ -4,8 +4,8 @@ unsigned long int MapEdge::mnNextId = 0;
 unsigned long int MapColine::mnNextId = 0;
 double MapEdge::viewCosTh = 0.1;
 
-MapEdge::MapEdge(MapPoint* ps, MapPoint* pe, Map* pMap) : 
-	mpMPs(ps), mpMPe(pe), mpMap(pMap), mbBad(false), mbValid(true)
+MapEdge::MapEdge(MapPoint* ps, MapPoint* pe) : 
+	mpMPs(ps), mpMPe(pe), mbBad(false), mbValid(true)
 {
 	mnBALocalForKF = 0;
 	trackedFrameId = 0;
@@ -60,12 +60,6 @@ bool MapEdge::isBad()
 {
 	std::unique_lock<std::mutex> lock(mtxObs);
 	return (mbBad || mpMPs->isBad() || mpMPe->isBad());
-}
-
-Map* MapEdge::GetMap()
-{
-	std::unique_lock<std::mutex> lock(mtxObs);
-    return mpMap;
 }
 
 MapColine::MapColine(MapPoint* pMPs, MapPoint* pMPm, MapPoint* pMPe) : 

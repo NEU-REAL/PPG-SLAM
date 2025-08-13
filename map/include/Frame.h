@@ -14,6 +14,7 @@
 #include "PPGGraph.h"
 #include "GeometricCamera.h"
 #include "KeyFrame.h"
+#include "Map.h"
 
 class KeyPointEx;
 class KeyEdge;
@@ -24,7 +25,7 @@ class MapPoint;
 class ConstraintPoseImu;
 class GeometricCamera;
 class PPGExtractor;
-
+class Map;
 using namespace std;
 
 class Frame
