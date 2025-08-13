@@ -10,20 +10,20 @@
 #include "KannalaBrandt8.h"
 #include "Pinhole.h"
 
-Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, GeometricCamera* pCam, const vector<MapPoint *> &vpMatched12, const bool bFixScale,
-                       vector<KeyFrame*> vpKeyFrameMatchedMP): mnIterations(0), mnBestInliers(0), mbFixScale(bFixScale), mpCamera(pCam)
+Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, GeometricCamera* pCam, const std::vector<MapPoint *> &vpMatched12, const bool bFixScale,
+                       std::vector<KeyFrame*> vpKeyFrameMatchedMP): mnIterations(0), mnBestInliers(0), mbFixScale(bFixScale), mpCamera(pCam)
 {
     bool bDifferentKFs = false;
     if(vpKeyFrameMatchedMP.empty())
     {
         bDifferentKFs = true;
-        vpKeyFrameMatchedMP = vector<KeyFrame*>(vpMatched12.size(), pKF2);
+        vpKeyFrameMatchedMP = std::vector<KeyFrame*>(vpMatched12.size(), pKF2);
     }
 
     mpKF1 = pKF1;
     mpKF2 = pKF2;
 
-    vector<MapPoint*> vpKeyFrameMP1 = pKF1->GetMapPointMatches();
+    std::vector<MapPoint*> vpKeyFrameMP1 = pKF1->GetMapPointMatches();
 
     mN1 = vpMatched12.size();
 
@@ -116,10 +116,10 @@ void Sim3Solver::SetRansacParameters(double probability, int minInliers, int max
     mnIterations = 0;
 }
 
-Eigen::Matrix4f Sim3Solver::iterate(int nIterations, bool &bNoMore, vector<bool> &vbInliers, int &nInliers)
+Eigen::Matrix4f Sim3Solver::iterate(int nIterations, bool &bNoMore, std::vector<bool> &vbInliers, int &nInliers)
 {
     bNoMore = false;
-    vbInliers = vector<bool>(mN1,false);
+    vbInliers = std::vector<bool>(mN1,false);
     nInliers=0;
 
     if(N<mRansacMinInliers)
@@ -128,7 +128,7 @@ Eigen::Matrix4f Sim3Solver::iterate(int nIterations, bool &bNoMore, vector<bool>
         return Eigen::Matrix4f::Identity();
     }
 
-    vector<size_t> vAvailableIndices;
+    std::vector<size_t> vAvailableIndices;
 
     Eigen::Matrix3f P3Dc1i;
     Eigen::Matrix3f P3Dc2i;
@@ -185,11 +185,11 @@ Eigen::Matrix4f Sim3Solver::iterate(int nIterations, bool &bNoMore, vector<bool>
     return Eigen::Matrix4f::Identity();
 }
 
-Eigen::Matrix4f Sim3Solver::iterate(int nIterations, bool &bNoMore, vector<bool> &vbInliers, int &nInliers, bool &bConverge)
+Eigen::Matrix4f Sim3Solver::iterate(int nIterations, bool &bNoMore, std::vector<bool> &vbInliers, int &nInliers, bool &bConverge)
 {
     bNoMore = false;
     bConverge = false;
-    vbInliers = vector<bool>(mN1,false);
+    vbInliers = std::vector<bool>(mN1,false);
     nInliers=0;
 
     if(N<mRansacMinInliers)
@@ -198,7 +198,7 @@ Eigen::Matrix4f Sim3Solver::iterate(int nIterations, bool &bNoMore, vector<bool>
         return Eigen::Matrix4f::Identity();
     }
 
-    vector<size_t> vAvailableIndices;
+    std::vector<size_t> vAvailableIndices;
 
     Eigen::Matrix3f P3Dc1i;
     Eigen::Matrix3f P3Dc2i;
@@ -263,7 +263,7 @@ Eigen::Matrix4f Sim3Solver::iterate(int nIterations, bool &bNoMore, vector<bool>
     return bestSim3;
 }
 
-Eigen::Matrix4f Sim3Solver::find(vector<bool> &vbInliers12, int &nInliers)
+Eigen::Matrix4f Sim3Solver::find(std::vector<bool> &vbInliers12, int &nInliers)
 {
     bool bFlag;
     return iterate(mRansacMaxIts,bFlag,vbInliers12,nInliers);
@@ -468,7 +468,7 @@ void Sim3Solver::ComputeSim3(Eigen::Matrix3f &P1, Eigen::Matrix3f &P2)
 
 void Sim3Solver::CheckInliers()
 {
-    vector<Eigen::Vector2f> vP1im2, vP2im1;
+    std::vector<Eigen::Vector2f> vP1im2, vP2im1;
     Project(mvX3Dc2,vP2im1,mT12i,mpCamera);
     Project(mvX3Dc1,vP1im2,mT21i,mpCamera);
 
@@ -512,7 +512,7 @@ float Sim3Solver::GetEstimatedScale()
     return mBestScale;
 }
 
-void Sim3Solver::Project(const vector<Eigen::Vector3f> &vP3Dw, vector<Eigen::Vector2f> &vP2D, Eigen::Matrix4f Tcw, GeometricCamera* pCamera)
+void Sim3Solver::Project(const std::vector<Eigen::Vector3f> &vP3Dw, std::vector<Eigen::Vector2f> &vP2D, Eigen::Matrix4f Tcw, GeometricCamera* pCamera)
 {
     Eigen::Matrix3f Rcw = Tcw.block<3,3>(0,0);
     Eigen::Vector3f tcw = Tcw.block<3,1>(0,3);
@@ -528,7 +528,7 @@ void Sim3Solver::Project(const vector<Eigen::Vector3f> &vP3Dw, vector<Eigen::Vec
     }
 }
 
-void Sim3Solver::FromCameraToImage(const vector<Eigen::Vector3f> &vP3Dc, vector<Eigen::Vector2f> &vP2D, GeometricCamera* pCamera)
+void Sim3Solver::FromCameraToImage(const std::vector<Eigen::Vector3f> &vP3Dc, std::vector<Eigen::Vector2f> &vP2D, GeometricCamera* pCamera)
 {
     vP2D.clear();
     vP2D.reserve(vP3Dc.size());
