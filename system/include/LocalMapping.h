@@ -38,7 +38,6 @@ public:
     void Run();
 
     void InsertKeyFrame(KeyFrame *pKF);
-    void increMap(KeyFrame* pnewKF);
     void EmptyQueue();
 
     // Thread Synch
@@ -59,9 +58,6 @@ public:
         unique_lock<std::mutex> lock(mMutexNewKFs);
         return mlNewKeyFrames.size();
     }
-
-    double GetCurrKFTime();
-    KeyFrame *GetCurrKF();
 
     Eigen::Matrix3d mRwg;
     Eigen::Vector3d mbg;

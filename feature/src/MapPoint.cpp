@@ -1,4 +1,5 @@
 #include "MapPoint.h"
+#include "Map.h"
 
 #include<mutex>
 

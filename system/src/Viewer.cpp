@@ -438,7 +438,6 @@ void MSViewing::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph, const b
             glVertex3f(0,   0,   0.1);
             glEnd();
             glPopMatrix();
-            glEnd();
         }
     }
 
@@ -448,20 +447,20 @@ void MSViewing::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph, const b
         glColor4f(0.0f,1.0f,0.0f,0.6f);
         glBegin(GL_LINES);
 
+        // int covisibilityCount = 0;
         for(size_t i=0; i<vpKFs.size(); i++)
         {
             // Covisibility Graph
-            const vector<KeyFrame*> vCovKFs = vpKFs[i]->GetCovisiblesByWeight(100);
+            const vector<KeyFrame*> vCovKFs = vpKFs[i]->GetCovisiblesByWeight(10);
             Eigen::Vector3f Ow = vpKFs[i]->GetCameraCenter();
             if(!vCovKFs.empty())
             {
                 for(vector<KeyFrame*>::const_iterator vit=vCovKFs.begin(), vend=vCovKFs.end(); vit!=vend; vit++)
                 {
-                    if((*vit)->mnId<vpKFs[i]->mnId)
-                        continue;
                     Eigen::Vector3f Ow2 = (*vit)->GetCameraCenter();
                     glVertex3f(Ow(0),Ow(1),Ow(2));
                     glVertex3f(Ow2(0),Ow2(1),Ow2(2));
+                    // covisibilityCount++;
                 }
             }
             // Loops
@@ -477,6 +476,12 @@ void MSViewing::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph, const b
         }
 
         glEnd();
+        // Debug output - print occasionally
+        // static int frameCounter = 0;
+        // frameCounter++;
+        // if(frameCounter % 100 == 0) {  // Print every 100 frames
+        //     cout << "Covisibility connections drawn: " << covisibilityCount << ", KeyFrames: " << vpKFs.size() << endl;
+        // }
     }
 
     if(bDrawInertialGraph && mpMap->isImuInitialized())
@@ -559,7 +564,19 @@ void MSViewing::SetCurrentCameraPose(const Sophus::SE3f &Tcw)
     aveR = mCameraPoses.back().so3().log();
 
     mCameraPose.translation() = aveP;
-    mCameraPose.so3() = Sophus::SO3f::exp(aveR);
+    
+    // Safety check for aveR before calling SO3::exp
+    if (!aveR.allFinite()) {
+        std::cout << "Warning: Invalid rotation vector in Viewer" << std::endl;
+        mCameraPose.so3() = Sophus::SO3f();  // Identity rotation
+    } else {
+        try {
+            mCameraPose.so3() = Sophus::SO3f::exp(aveR);
+        } catch (const std::exception& e) {
+            std::cout << "Warning: SO3::exp failed in Viewer: " << e.what() << std::endl;
+            mCameraPose.so3() = Sophus::SO3f();  // Identity rotation
+        }
+    }
     // mCameraPose = Tcw.inverse();
 }
 

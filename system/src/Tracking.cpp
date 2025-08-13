@@ -600,7 +600,7 @@ void MSTracking::CreateInitialMapMonocular()
     vector<MapEdge*> vpMEs = mpMap->GetAllMapEdges();
     for(MapEdge* pME : vpMEs)
     {
-        if(pME== nullptr || pME->isBad() || !pME->mbValid)
+        if(pME== nullptr || pME->isBad())
             continue;
         pME->checkValid();
     }
@@ -857,7 +857,7 @@ void MSTracking::CreateNewKeyFrame()
         pNewKF->mPrevKF = mpLastKeyFrame;
         mpLastKeyFrame->mNextKF = pNewKF;
     }
-    mpMap->IncreseMap(pNewKF);
+    mpMap->IncreMap(pNewKF);
 
     MSLocalMapping::get().SetNotStop(false);
     MSLocalMapping::get().InsertKeyFrame(pNewKF);

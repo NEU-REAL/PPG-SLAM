@@ -228,7 +228,7 @@ void Optimizer::GlobalBundleAdjustemnt(Map* pMap, int nIterations, bool* pbStopF
     vector<MapEdge*> vpMEs = pMap->GetAllMapEdges();
     for(MapEdge* pME : vpMEs)
     {
-        if(!pME || pME->isBad() || !pME->mbValid)
+        if(!pME || pME->isBad())
             continue;
         pME->checkValid();
     }
@@ -549,7 +549,7 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const long unsigned int nLoop
     vector<MapEdge*> vpMEs = pMap->GetAllMapEdges();
     for(MapEdge* pME : vpMEs)
     {
-        if(!pME || pME->isBad() || !pME->mbValid)
+        if(!pME || pME->isBad())
             continue;
         pME->checkValid();
     }
@@ -962,7 +962,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
         std::vector<MapEdge*> vpMEs = pMP->getEdges();
         for(MapEdge* pME : vpMEs)
         {
-            if(!pME || pME->isBad() || pME->mnBALocalForKF == pKF->mnId || !pME->mbValid)
+            if(!pME || pME->isBad() || pME->mnBALocalForKF == pKF->mnId)
                 continue;
             pME->mnBALocalForKF = pKF->mnId;
             pME->checkValid();
@@ -1236,7 +1236,7 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
     vector<MapEdge*> vpMEs = pMap->GetAllMapEdges();
     for(MapEdge* pME : vpMEs)
     {
-        if(!pME || pME->isBad() || !pME->mbValid)
+        if(!pME || pME->isBad())
             continue;
         pME->checkValid();
     }
@@ -1988,7 +1988,7 @@ void Optimizer::LocalInertialBA(KeyFrame *pKF, bool *pbStopFlag, Map *pMap, int&
         std::vector<MapEdge*> vpMEs = pMP->getEdges();
         for(MapEdge* pME : vpMEs)
         {
-            if(!pME || pME->isBad() || pME->mnBALocalForKF == pKF->mnId || !pME->mbValid)
+            if(!pME || pME->isBad() || pME->mnBALocalForKF == pKF->mnId)
                 continue;
             pME->mnBALocalForKF = pKF->mnId;
             pME->checkValid();
@@ -3131,7 +3131,7 @@ void Optimizer::OptimizeEssentialGraph4DoF(Map* pMap, KeyFrame* pLoopKF, KeyFram
     vector<MapEdge*> vpMEs = pMap->GetAllMapEdges();
     for(MapEdge* pME : vpMEs)
     {
-        if(!pME || pME->isBad() || !pME->mbValid)
+        if(!pME || pME->isBad())
             continue;
         pME->checkValid();
     }

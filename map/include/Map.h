@@ -65,7 +65,7 @@ public:
     vector<KeyFrame*> DetectNBestCandidates(KeyFrame *pKF, unsigned int nNumCandidates);
     vector<KeyFrame*> DetectRelocalizationCandidates(Frame *F);
 
-    void IncreseMap(KeyFrame* pNewKF);
+    void IncreMap(KeyFrame* pNewKF);
     
     std::mutex mMutexMapUpdate;
 

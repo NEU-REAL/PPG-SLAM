@@ -1,4 +1,4 @@
-
+// IMU based on https://github.com/UZ-SLAMLab/ORB_SLAM3
 #include "IMU.h"
 
 #include<iostream>
@@ -262,7 +262,19 @@ Eigen::Matrix3f Preintegrated::GetDeltaRotation(const Bias &b_)
     std::unique_lock<std::mutex> lock(mMutex);
     Eigen::Vector3f dbg;
     dbg << b_.bwx-b.bwx,b_.bwy-b.bwy,b_.bwz-b.bwz;
-    return NormalizeRotation(dR * Sophus::SO3f::exp(JRg * dbg).matrix());
+    
+    Eigen::Vector3f rotation_vector = JRg * dbg;
+    if (!rotation_vector.allFinite()) {
+        std::cout << "Warning: Invalid rotation vector in GetDeltaRotation" << std::endl;
+        return NormalizeRotation(dR);
+    }
+    
+    try {
+        return NormalizeRotation(dR * Sophus::SO3f::exp(rotation_vector).matrix());
+    } catch (const std::exception& e) {
+        std::cout << "Warning: SO3::exp failed in GetDeltaRotation: " << e.what() << std::endl;
+        return NormalizeRotation(dR);
+    }
 }
 
 Eigen::Vector3f Preintegrated::GetDeltaVelocity(const Bias &b_)
@@ -286,7 +298,19 @@ Eigen::Vector3f Preintegrated::GetDeltaPosition(const Bias &b_)
 Eigen::Matrix3f Preintegrated::GetUpdatedDeltaRotation()
 {
     std::unique_lock<std::mutex> lock(mMutex);
-    return NormalizeRotation(dR * Sophus::SO3f::exp(JRg*db.head(3)).matrix());
+    
+    Eigen::Vector3f rotation_vector = JRg*db.head(3);
+    if (!rotation_vector.allFinite()) {
+        std::cout << "Warning: Invalid rotation vector in GetUpdatedDeltaRotation" << std::endl;
+        return NormalizeRotation(dR);
+    }
+    
+    try {
+        return NormalizeRotation(dR * Sophus::SO3f::exp(rotation_vector).matrix());
+    } catch (const std::exception& e) {
+        std::cout << "Warning: SO3::exp failed in GetUpdatedDeltaRotation: " << e.what() << std::endl;
+        return NormalizeRotation(dR);
+    }
 }
 
 Eigen::Vector3f Preintegrated::GetUpdatedDeltaVelocity()

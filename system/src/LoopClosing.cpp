@@ -50,7 +50,29 @@ void MSLoopClosing::Run()
                     Sophus::SE3d Twc = mpCurrentKF->GetPoseInverse().cast<double>();
                     g2o::Sim3 g2oTwc(Twc.unit_quaternion(),Twc.translation(),1.0);
                     g2o::Sim3 g2oSww_new = g2oTwc*mg2oLoopScw;
-                    Eigen::Vector3d phi = LogSO3(g2oSww_new.rotation().toRotationMatrix());
+                    Eigen::Matrix3d rotation_matrix = g2oSww_new.rotation().toRotationMatrix();
+                    
+                    // Check if rotation matrix is valid
+                    bool bValidRotation = true;
+                    if (!rotation_matrix.allFinite()) {
+                        std::cout << "Invalid rotation matrix (NaN/Inf detected)" << std::endl;
+                        bValidRotation = false;
+                    }
+                    
+                    // Check trace bounds for LogSO3
+                    double tr = rotation_matrix.trace();
+                    if (tr < -1.0 || tr > 3.0) {
+                        std::cout << "Invalid rotation matrix trace: " << tr << std::endl;
+                        bValidRotation = false;
+                    }
+                    
+                    Eigen::Vector3d phi;
+                    if (bValidRotation) {
+                        phi = LogSO3(rotation_matrix);
+                    } else {
+                        phi = Eigen::Vector3d::Zero();
+                        std::cout << "Using zero rotation due to invalid matrix" << std::endl;
+                    }
                     cout << "phi = " << phi.transpose() << endl; 
                     if (fabs(phi(0))<0.008f && fabs(phi(1))<0.008f && fabs(phi(2))<0.349f)
                     {
@@ -305,7 +327,7 @@ bool MSLoopClosing::DetectCommonRegionsFromBoW(std::vector<KeyFrame*> &vpBowCand
         std::vector<KeyFrame*> vpCovKFi = pKFi->GetBestCovisibilityKeyFrames(nNumCovisibles);
         if(vpCovKFi.empty())
         {
-            std::cout << "Covisible list empty" << std::endl;
+            // std::cout << "Covisible list empty" << std::endl;
             vpCovKFi.push_back(pKFi);
         }
         else

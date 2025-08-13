@@ -283,6 +283,18 @@ void Sim3Solver::ComputeSim3(Eigen::Matrix3f &P1, Eigen::Matrix3f &P2)
     // Custom implementation of:
     // Horn 1987, Closed-form solution of absolute orientataion using unit quaternions
 
+    // Input validation
+    if (!P1.allFinite() || !P2.allFinite()) {
+        std::cout << "Warning: Invalid input points in ComputeSim3" << std::endl;
+        mR12i = Eigen::Matrix3f::Identity();
+        ms12i = 1.0f;
+        mt12i = Eigen::Vector3f::Zero();
+        
+        mT12i.setIdentity();
+        mT21i.setIdentity();
+        return;
+    }
+
     // Step 1: Centroid and relative coordinates
 
     Eigen::Matrix3f Pr1; // Relative coordinates to centroid (set 1)
@@ -293,9 +305,33 @@ void Sim3Solver::ComputeSim3(Eigen::Matrix3f &P1, Eigen::Matrix3f &P2)
     ComputeCentroid(P1,Pr1,O1);
     ComputeCentroid(P2,Pr2,O2);
 
+    // Validate centroids
+    if (!O1.allFinite() || !O2.allFinite() || !Pr1.allFinite() || !Pr2.allFinite()) {
+        std::cout << "Warning: Invalid centroids or relative coordinates in ComputeSim3" << std::endl;
+        mR12i = Eigen::Matrix3f::Identity();
+        ms12i = 1.0f;
+        mt12i = Eigen::Vector3f::Zero();
+        
+        mT12i.setIdentity();
+        mT21i.setIdentity();
+        return;
+    }
+
     // Step 2: Compute M matrix
 
     Eigen::Matrix3f M = Pr2 * Pr1.transpose();
+
+    // Validate M matrix
+    if (!M.allFinite()) {
+        std::cout << "Warning: Invalid M matrix in ComputeSim3" << std::endl;
+        mR12i = Eigen::Matrix3f::Identity();
+        ms12i = 1.0f;
+        mt12i = Eigen::Vector3f::Zero();
+        
+        mT12i.setIdentity();
+        mT21i.setIdentity();
+        return;
+    }
 
     // Step 3: Compute N matrix
     double N11, N12, N13, N14, N22, N23, N24, N33, N34, N44;
@@ -326,16 +362,67 @@ void Sim3Solver::ComputeSim3(Eigen::Matrix3f &P1, Eigen::Matrix3f &P2)
     Eigen::Vector4f eval = eigSolver.eigenvalues().real();
     Eigen::Matrix4f evec = eigSolver.eigenvectors().real(); //evec[0] is the quaternion of the desired rotation
 
+    // Check for valid eigenvalues and eigenvectors
+    if (!eval.allFinite() || !evec.allFinite()) {
+        std::cout << "Warning: Invalid eigenvalues or eigenvectors detected in Sim3 computation" << std::endl;
+        mR12i = Eigen::Matrix3f::Identity();
+        ms12i = 1.0f;
+        mt12i = Eigen::Vector3f::Zero();
+        
+        mT12i.setIdentity();
+        mT21i.setIdentity();
+        return;
+    }
+
     int maxIndex; // should be zero
     eval.maxCoeff(&maxIndex);
 
     Eigen::Vector3f vec = evec.block<3,1>(1,maxIndex); //extract imaginary part of the quaternion (sin*axis)
 
-    // Rotation angle. sin is the norm of the imaginary part, cos is the real part
-    double ang=atan2(vec.norm(),evec(0,maxIndex));
+    // Check for valid vector components
+    if (!vec.allFinite()) {
+        std::cout << "Warning: Invalid eigenvector detected in Sim3 computation" << std::endl;
+        mR12i = Eigen::Matrix3f::Identity();
+        ms12i = 1.0f;
+        mt12i = Eigen::Vector3f::Zero();
+        
+        mT12i.setIdentity();
+        mT21i.setIdentity();
+        return;
+    }
 
-    vec = 2*ang*vec/vec.norm(); //Angle-axis representation. quaternion angle is the half
-    mR12i = Sophus::SO3f::exp(vec).matrix();
+    // Rotation angle. sin is the norm of the imaginary part, cos is the real part
+    double vec_norm = vec.norm();
+    double real_part = evec(0,maxIndex);
+    
+    // Check for valid norm and real part
+    if (vec_norm < 1e-8 || !std::isfinite(real_part)) {
+        std::cout << "Warning: Degenerate quaternion in Sim3 computation (norm=" << vec_norm << ", real=" << real_part << ")" << std::endl;
+        mR12i = Eigen::Matrix3f::Identity();
+    } else {
+        double ang = atan2(vec_norm, real_part);
+        
+        // Check for valid angle
+        if (!std::isfinite(ang)) {
+            std::cout << "Warning: Invalid rotation angle in Sim3 computation" << std::endl;
+            mR12i = Eigen::Matrix3f::Identity();
+        } else {
+            vec = 2*ang*vec/vec_norm; //Angle-axis representation. quaternion angle is the half
+            
+            // Additional safety check before calling Sophus::SO3f::exp
+            if (!vec.allFinite()) {
+                std::cout << "Warning: Invalid rotation vector before SO3::exp" << std::endl;
+                mR12i = Eigen::Matrix3f::Identity();
+            } else {
+                try {
+                    mR12i = Sophus::SO3f::exp(vec).matrix();
+                } catch (const std::exception& e) {
+                    std::cout << "Warning: SO3::exp failed: " << e.what() << std::endl;
+                    mR12i = Eigen::Matrix3f::Identity();
+                }
+            }
+        }
+    }
 
     // Step 5: Rotate set 2
     Eigen::Matrix3f P3 = mR12i*Pr2;

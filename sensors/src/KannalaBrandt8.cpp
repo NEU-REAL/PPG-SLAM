@@ -1,3 +1,4 @@
+// Camera model based on https://github.com/UZ-SLAMLab/ORB_SLAM3
 #include "KannalaBrandt8.h"
 
 const float precision = 1e-6f; // Precision for floating point comparisons
