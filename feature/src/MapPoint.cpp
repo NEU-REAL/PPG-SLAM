@@ -1,11 +1,15 @@
 #include "MapPoint.h"
+#include "KeyFrame.h"
+#include "PPGGraph.h"
 
-#include<mutex>
+#include <mutex>
+
+using namespace std;
 
 long unsigned int MapPoint::nNextId=0;
 float MapPoint::COS_TH = 0.90;  // 0.9 for uma,euroc, 0.8 for tum
-mutex MapPoint::mGlobalMutex;
-mutex MapPoint::mMutexPointCreation;
+std::mutex MapPoint::mGlobalMutex;
+std::mutex MapPoint::mMutexPointCreation;
 
 float DescriptorDistance(const cv::Mat &a, const cv::Mat &b)
 {
