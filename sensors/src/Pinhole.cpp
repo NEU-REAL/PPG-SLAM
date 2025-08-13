@@ -1,3 +1,4 @@
+// Camera model based on https://github.com/UZ-SLAMLab/ORB_SLAM3
 #include "Pinhole.h"
 
 Pinhole::Pinhole(const std::vector<float> &_vParameters, int width, int height, float fps)
