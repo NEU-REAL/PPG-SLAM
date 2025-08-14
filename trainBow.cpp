@@ -1,8 +1,12 @@
 #include <ctime>
 #include <iostream>
 #include <unistd.h>
+#include <fstream>
+#include <chrono>
 #include <opencv2/opencv.hpp>
 #include "feature/include/PPGExtractor.h"
+#include "sensors/include/GeometricCamera.h"
+#include "sensors/include/Pinhole.h"
 #include "DBoW3/DBoW3.h"
 
 std::vector<cv::Mat> getFeatures(PPGExtractor *pExt, std::string dataPath, int n = 1e6)
