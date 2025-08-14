@@ -568,10 +568,30 @@ void MSTracking::CreateInitialMapMonocular()
     std::cout<< "New Map created with " << to_string(mpMap->MapPointsInMap()) << " points"<< std::endl;
     Optimizer::GlobalBundleAdjustemnt(mpMap, 20);
 
-    float medianDepth = pKFini->ComputeSceneMedianDepth(2);
-    float invMedianDepth;
-
-    invMedianDepth = 4.0f / medianDepth; // 4.0f
+    // Compute scene median depth inline
+    float medianDepth = -1.0f;
+    if (pKFini->N > 0) {
+        std::vector<float> vDepths;
+        vDepths.reserve(pKFini->N);
+        
+        const Eigen::Matrix<float,1,3> Rcw2 = pKFini->GetRotation().row(2);
+        const float zcw = pKFini->GetTranslation()(2);
+        
+        const std::vector<MapPoint*> vpMapPoints = pKFini->GetMapPointMatches();
+        for (int i = 0; i < pKFini->N; i++) {
+            if (vpMapPoints[i]) {
+                const Eigen::Vector3f x3Dw = vpMapPoints[i]->GetWorldPos();
+                vDepths.push_back(Rcw2.dot(x3Dw) + zcw);
+            }
+        }
+        
+        if (!vDepths.empty()) {
+            std::sort(vDepths.begin(), vDepths.end());
+            medianDepth = vDepths[(vDepths.size()-1)/2];  // q=2 means median
+        }
+    }
+    
+    float invMedianDepth = 4.0f / medianDepth; // 4.0f
 
     if (medianDepth < 0 || pKFcur->TrackedMapPoints(1) < 50) // TODO Check, originally 100 tracks
     {

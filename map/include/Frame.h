@@ -75,8 +75,6 @@ public:
 
 public:
     ConstraintPoseImu* mpcpi;
-    // Vocabulary used for relocalization.
-    DBoW3::Vocabulary* mpVocabulary;
     // Feature extractor. The right is used only in the stereo case.
     PPGExtractor* mpExtractor;
     // PPGExtractor* mpExtractor;
@@ -122,17 +120,8 @@ public:
     // Flag to identify outlier associations.
     std::vector<bool> mvbOutlier;
     // Keypoints are assigned to cells in a grid to reduce matching complexity when projecting MapPoints.
-    static float mfGridElementWidthInv;
-    static float mfGridElementHeightInv;
-    std::vector<std::size_t> mGrid[FRAME_GRID_COLS][FRAME_GRID_ROWS];
+    std::vector<std::size_t> mGrid[GeometricCamera::FRAME_GRID_COLS][GeometricCamera::FRAME_GRID_ROWS];
     // Scale pyramid info.
-
-    // Undistorted Image Bounds (computed once).
-    static float mnMinX;
-    static float mnMaxX;
-    static float mnMinY;
-    static float mnMaxY;
-    static bool mbInitialComputations;
 
 public:
     //Sophus/Eigen migration
@@ -153,8 +142,6 @@ public:
 
 
 public:
-    // Computes image bounds for the undistorted image (called in the constructor).
-    void ComputeImageBounds(const cv::Mat &imLeft);
     // Assign keypoints to the grid for speed up feature matching (called in the constructor).
     void AssignFeaturesToGrid();
 

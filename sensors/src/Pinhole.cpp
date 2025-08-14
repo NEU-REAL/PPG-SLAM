@@ -8,6 +8,7 @@ Pinhole::Pinhole(const std::vector<float> &_vParameters, int width, int height, 
     mnType = CAM_PINHOLE;
     Eigen::Matrix3f eigenK = toK_();
     mpTvr = new TwoViewReconstruction(eigenK);
+    InitializeImageBounds();
 }
 
 Eigen::Vector2d Pinhole::project(const Eigen::Vector3d &v3D)

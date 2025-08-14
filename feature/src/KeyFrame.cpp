@@ -9,19 +9,18 @@
 long unsigned int KeyFrame::nNextId=0;
 
 KeyFrame::KeyFrame():
-        mnFrameId(0),  mTimeStamp(0), mnGridCols(FRAME_GRID_COLS), mnGridRows(FRAME_GRID_ROWS),
-        mfGridElementWidthInv(0), mfGridElementHeightInv(0),
+        mnFrameId(0),  mTimeStamp(0),
         mnTrackReferenceForFrame(0), mnFuseTargetForKF(0), mnBALocalForKF(0), mnBAFixedForKF(0), 
-        mnLoopQuery(0), mnLoopWords(0), mnRelocQuery(0), mnRelocWords(0), mnMergeQuery(0), mnMergeWords(0), mnBAGlobalForKF(0),
+        mnRelocQuery(0), mnRelocWords(0), mnBAGlobalForKF(0),
         mnPlaceRecognitionQuery(0), mnPlaceRecognitionWords(0), mPlaceRecognitionScore(0),
         N(0), mvKeys(std::vector<KeyPointEx>()), mvKeysUn(std::vector<KeyPointEx>()),
-        mvKeyEdges(std::vector<KeyEdge>()), mnMinX(0), mnMinY(0), mnMaxX(0),
-        mnMaxY(0), mPrevKF(nullptr), mNextKF(nullptr), mbNotErase(false),
+        mvKeyEdges(std::vector<KeyEdge>()), mPrevKF(nullptr), mNextKF(nullptr), mbNotErase(false),
         mbToBeErased(false), mbBad(false), 
         mnNumberOfOpt(0), mbHasVelocity(false) 
 {
     mnId=nNextId++;
-    mGrid.resize(FRAME_GRID_COLS, std::vector<std::vector<std::size_t>>(FRAME_GRID_ROWS, std::vector<std::size_t>()));
+    // Initialize the grid for storing keypoint indices for fast access
+    mGrid.resize(GeometricCamera::FRAME_GRID_COLS, std::vector<std::vector<std::size_t>>(GeometricCamera::FRAME_GRID_ROWS, std::vector<std::size_t>()));
 }
 
 void KeyFrame::SetPose(const Sophus::SE3f &Tcw)
@@ -177,7 +176,7 @@ std::vector<KeyFrame*> KeyFrame::GetCovisiblesByWeight(const int &w)
         return std::vector<KeyFrame*>();
     }
 
-    std::vector<int>::iterator it = std::upper_bound(mvOrderedWeights.begin(),mvOrderedWeights.end(),w,KeyFrame::weightComp);
+    std::vector<int>::iterator it = std::upper_bound(mvOrderedWeights.begin(),mvOrderedWeights.end(),w,[](int a, int b){ return a > b; });
 
     if(it==mvOrderedWeights.end() && mvOrderedWeights.back() < w)
     {
@@ -463,19 +462,19 @@ std::vector<size_t> KeyFrame::GetFeaturesInArea(const float &x, const float &y, 
     float factorX = r;
     float factorY = r;
 
-    const int nMinCellX = std::max(0,(int)floor((x-mnMinX-factorX)*mfGridElementWidthInv));
-    if(nMinCellX>=mnGridCols)
+    const int nMinCellX = std::max(0,(int)floor((x-mpCamera->mnMinX-factorX)*mpCamera->mfGridElementWidthInv));
+    if(nMinCellX>=mpCamera->mnGridCols)
         return vIndices;
 
-    const int nMaxCellX = std::min((int)mnGridCols-1,(int)ceil((x-mnMinX+factorX)*mfGridElementWidthInv));
+    const int nMaxCellX = std::min((int)mpCamera->mnGridCols-1,(int)ceil((x-mpCamera->mnMinX+factorX)*mpCamera->mfGridElementWidthInv));
     if(nMaxCellX<0)
         return vIndices;
 
-    const int nMinCellY = std::max(0,(int)floor((y-mnMinY-factorY)*mfGridElementHeightInv));
-    if(nMinCellY>=mnGridRows)
+    const int nMinCellY = std::max(0,(int)floor((y-mpCamera->mnMinY-factorY)*mpCamera->mfGridElementHeightInv));
+    if(nMinCellY>=mpCamera->mnGridRows)
         return vIndices;
 
-    const int nMaxCellY = std::min((int)mnGridRows-1,(int)ceil((y-mnMinY+factorY)*mfGridElementHeightInv));
+    const int nMaxCellY = std::min((int)mpCamera->mnGridRows-1,(int)ceil((y-mpCamera->mnMinY+factorY)*mpCamera->mfGridElementHeightInv));
     if(nMaxCellY<0)
         return vIndices;
 
@@ -497,46 +496,6 @@ std::vector<size_t> KeyFrame::GetFeaturesInArea(const float &x, const float &y, 
     }
 
     return vIndices;
-}
-
-bool KeyFrame::IsInImage(const float &x, const float &y) const
-{
-    return (x>=mnMinX && x<mnMaxX && y>=mnMinY && y<mnMaxY);
-}
-
-float KeyFrame::ComputeSceneMedianDepth(const int q)
-{
-    if(N==0)
-        return -1.0;
-
-    std::vector<MapPoint*> vpMapPoints;
-    Eigen::Matrix3f Rcw;
-    Eigen::Vector3f tcw;
-    {
-        std::unique_lock<std::mutex> lock(mMutexFeatures);
-        std::unique_lock<std::mutex> lock2(mMutexPose);
-        vpMapPoints = mvpMapPoints;
-        tcw = mTcw.translation();
-        Rcw = mRcw;
-    }
-
-    std::vector<float> vDepths;
-    vDepths.reserve(N);
-    Eigen::Matrix<float,1,3> Rcw2 = Rcw.row(2);
-    float zcw = tcw(2);
-    for(int i=0; i<N; i++) {
-        if(mvpMapPoints[i])
-        {
-            MapPoint* pMP = mvpMapPoints[i];
-            Eigen::Vector3f x3Dw = pMP->GetWorldPos();
-            float z = Rcw2.dot(x3Dw) + zcw;
-            vDepths.push_back(z);
-        }
-    }
-
-    sort(vDepths.begin(),vDepths.end());
-
-    return vDepths[(vDepths.size()-1)/q];
 }
 
 void KeyFrame::SetNewBias(const IMU::Bias &b)
@@ -563,11 +522,6 @@ IMU::Bias KeyFrame::GetImuBias()
 {
     std::unique_lock<std::mutex> lock(mMutexPose);
     return mImuBias;
-}
-
-void KeyFrame::SetVocabulary(DBoW3::Vocabulary* pVoc)
-{
-    mpVocabulary = pVoc;
 }
 
 void KeyFrame::AddMapEdge(MapEdge* pME, const size_t &idx)

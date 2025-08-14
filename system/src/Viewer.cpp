@@ -604,7 +604,7 @@ void MSViewing::SaveTrajectory(const string &filename)
     cout << endl << "Saving trajectory to " << filename << " ..." << endl;
 
     vector<KeyFrame*> vpKFs = mpMap->GetAllKeyFrames();
-    sort(vpKFs.begin(),vpKFs.end(),KeyFrame::lId);
+    sort(vpKFs.begin(),vpKFs.end(),[](KeyFrame* pKF1, KeyFrame* pKF2){ return pKF1->mnId < pKF2->mnId; });
 
     Sophus::SE3f Twb;
     Twb = vpKFs[0]->GetImuPose();
@@ -643,7 +643,7 @@ void MSViewing::SaveKeyFrameTrajectory(const string &filename)
     cout << endl << "Saving keyframe trajectory to " << filename << " ..." << endl;
 
     vector<KeyFrame*> vpKFs = mpMap->GetAllKeyFrames();
-    sort(vpKFs.begin(),vpKFs.end(),KeyFrame::lId);
+    sort(vpKFs.begin(),vpKFs.end(),[](KeyFrame* pKF1, KeyFrame* pKF2){ return pKF1->mnId < pKF2->mnId; });
 
     ofstream f;
     f.open(filename.c_str());

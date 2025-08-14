@@ -3,3 +3,5 @@ add_library(Matching
     src/MLPnPsolver.cpp
     src/Sim3Solver.cpp
 )
+
+target_link_libraries(Sensors)

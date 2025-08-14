@@ -57,6 +57,34 @@ public:
     const unsigned int CAM_PINHOLE = 0;
     const unsigned int CAM_FISHEYE = 1;
 
+    // ==================== GRID CONSTANTS ====================
+    static const int FRAME_GRID_ROWS = 48;   ///< Number of grid rows for feature matching acceleration
+    static const int FRAME_GRID_COLS = 64;   ///< Number of grid columns for feature matching acceleration
+
+    // ==================== IMAGE BOUNDS AND GRID PARAMETERS ====================
+    
+    /**
+     * @brief Check if point is within image bounds
+     */
+    bool IsInImage(const float &x, const float &y) const;
+
+    // ==================== STATIC IMAGE PARAMETERS ====================
+    int mnGridCols;                    ///< Number of grid columns for feature matching acceleration
+    int mnGridRows;                    ///< Number of grid rows for feature matching acceleration
+    float mfGridElementWidthInv;       ///< Inverse width of each grid element
+    float mfGridElementHeightInv;      ///< Inverse height of each grid element
+    
+    int mnMinX;                        ///< Minimum X coordinate of image bounds
+    int mnMinY;                        ///< Minimum Y coordinate of image bounds
+    int mnMaxX;                        ///< Maximum X coordinate of image bounds
+    int mnMaxY;                        ///< Maximum Y coordinate of image bounds
+
+protected:
+    /**
+     * @brief Initialize image bounds and grid parameters for feature matching
+     */
+    void InitializeImageBounds();
+
 public:
     std::vector<float> mvParameters;
     int mnWdith, mnHeight;

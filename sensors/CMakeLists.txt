@@ -5,6 +5,7 @@ include_directories(
 
 add_library(Sensors
     include/GeometricCamera.h
+    src/GeometricCamera.cpp
     src/KannalaBrandt8.cpp
     src/Pinhole.cpp
     src/TwoViewReconstruction.cpp

@@ -9,9 +9,6 @@
 #include "Map.h"
 
 long unsigned int Frame::nNextId=0;
-bool Frame::mbInitialComputations=true;
-float Frame::mnMinX, Frame::mnMinY, Frame::mnMaxX, Frame::mnMaxY;
-float Frame::mfGridElementWidthInv, Frame::mfGridElementHeightInv;
 
 Frame::Frame(): mpcpi(nullptr), mpExtractor(nullptr),mpImuPreintegrated(nullptr), 
     mpImuPreintegratedFrame(nullptr), mpPrevFrame(nullptr), mpLastKeyFrame(nullptr), 
@@ -30,8 +27,8 @@ Frame::Frame(const Frame &frame) : mpcpi(frame.mpcpi), mpExtractor(frame.mpExtra
      mbImuPreintegrated(frame.mbImuPreintegrated), mTcw(frame.mTcw), mbHasPose(false), mbHasVelocity(false)
 {
     srcMat = frame.srcMat.clone();
-    for(int i=0;i<FRAME_GRID_COLS;i++)
-        for(int j=0; j<FRAME_GRID_ROWS; j++)
+    for(int i=0;i<GeometricCamera::FRAME_GRID_COLS;i++)
+        for(int j=0; j<GeometricCamera::FRAME_GRID_ROWS; j++)
             mGrid[i][j]=frame.mGrid[i][j];
 
     if(frame.mbHasPose)
@@ -49,11 +46,7 @@ KeyFrame* Frame::buildKeyFrame(Map* pMap)
     ret->bImu = pMap->isImuInitialized();
     ret->mnFrameId = mnId;  
     ret->mTimeStamp = mTimeStamp;
-    ret->mnGridCols = FRAME_GRID_COLS;
-    ret->mnGridRows = FRAME_GRID_ROWS;
 
-    ret->mfGridElementWidthInv = mfGridElementWidthInv;
-    ret->mfGridElementHeightInv = mfGridElementHeightInv;
     ret->N = N;
     ret->mvKeys = mvKeys;
     ret->mvKeysUn = mvKeysUn;
@@ -61,10 +54,6 @@ KeyFrame* Frame::buildKeyFrame(Map* pMap)
     ret->mDescriptors = mDescriptors.clone();
     ret->mBowVec = mBowVec;
     ret->mFeatVec = mFeatVec;
-    ret->mnMinX = mnMinX;
-    ret->mnMinY = mnMinY;
-    ret->mnMaxX = mnMaxX;
-    ret->mnMaxY = mnMaxY;
     ret->mpImuPreintegrated = mpImuPreintegrated;
     ret->mpImuCalib = mpImuCalib;
     ret->mpCamera = mpCamera;
@@ -72,11 +61,11 @@ KeyFrame* Frame::buildKeyFrame(Map* pMap)
     ret->mvpMapEdges = mvpMapEdges;
     ret->srcMat = srcMat.clone();
 
-    ret->mGrid.resize(FRAME_GRID_COLS);
-    for(int i=0; i<FRAME_GRID_COLS;i++)
+    ret->mGrid.resize(GeometricCamera::FRAME_GRID_COLS);
+    for(int i=0; i<GeometricCamera::FRAME_GRID_COLS;i++)
     {
-        ret->mGrid[i].resize(FRAME_GRID_ROWS);
-        for(int j=0; j<FRAME_GRID_ROWS; j++){
+        ret->mGrid[i].resize(GeometricCamera::FRAME_GRID_ROWS);
+        for(int j=0; j<GeometricCamera::FRAME_GRID_ROWS; j++){
             ret->mGrid[i][j] = mGrid[i][j];
         }
     }
@@ -123,17 +112,6 @@ Frame::Frame(const cv::Mat &imGray, const double &timeStamp, PPGExtractor* pExt,
 
     mvbOutlier = vector<bool>(N,false);
 
-    // This is done only for the first Frame (or after a change in the calibration)
-    if(mbInitialComputations)
-    {
-        ComputeImageBounds(imGray);
-
-        mfGridElementWidthInv=static_cast<float>(FRAME_GRID_COLS)/static_cast<float>(mnMaxX-mnMinX);
-        mfGridElementHeightInv=static_cast<float>(FRAME_GRID_ROWS)/static_cast<float>(mnMaxY-mnMinY);
-
-        mbInitialComputations=false;
-    }
-
     AssignFeaturesToGrid();
 
     if(pPrevF)
@@ -153,12 +131,12 @@ Frame::Frame(const cv::Mat &imGray, const double &timeStamp, PPGExtractor* pExt,
 void Frame::AssignFeaturesToGrid()
 {
     // Fill matrix with points
-    const int nCells = FRAME_GRID_COLS*FRAME_GRID_ROWS;
+    const int nCells = GeometricCamera::FRAME_GRID_COLS*GeometricCamera::FRAME_GRID_ROWS;
 
     int nReserve = 0.5f*N/(nCells);
 
-    for(unsigned int i=0; i<FRAME_GRID_COLS;i++)
-        for (unsigned int j=0; j<FRAME_GRID_ROWS;j++)
+    for(unsigned int i=0; i<GeometricCamera::FRAME_GRID_COLS;i++)
+        for (unsigned int j=0; j<GeometricCamera::FRAME_GRID_ROWS;j++)
             mGrid[i][j].reserve(nReserve);
 
     for(int i=0;i<N;i++)
@@ -245,9 +223,7 @@ void Frame::CheckInFrustum(MapPoint *pMP, float viewingCosLimit)
         return;
     // check if projected in image
     const Eigen::Vector2f uv = mpCamera->project(Pc);
-    if(uv(0)<mnMinX || uv(0)>mnMaxX)
-        return;
-    if(uv(1)<mnMinY || uv(1)>mnMaxY)
+    if(!mpCamera->IsInImage(uv(0), uv(1)))
         return;
     // Check distance to camera
     const float maxDistance = pMP->GetMaxDistanceInvariance();
@@ -279,25 +255,25 @@ vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const f
     float factorX = r;
     float factorY = r;
 
-    const int nMinCellX = max(0,(int)floor((x-mnMinX-factorX)*mfGridElementWidthInv));
-    if(nMinCellX>=FRAME_GRID_COLS)
+    const int nMinCellX = max(0,(int)floor((x-mpCamera->mnMinX-factorX)*mpCamera->mfGridElementWidthInv));
+    if(nMinCellX>=GeometricCamera::FRAME_GRID_COLS)
     {
         return vIndices;
     }
 
-    const int nMaxCellX = min((int)FRAME_GRID_COLS-1,(int)ceil((x-mnMinX+factorX)*mfGridElementWidthInv));
+    const int nMaxCellX = min((int)GeometricCamera::FRAME_GRID_COLS-1,(int)ceil((x-mpCamera->mnMinX+factorX)*mpCamera->mfGridElementWidthInv));
     if(nMaxCellX<0)
     {
         return vIndices;
     }
 
-    const int nMinCellY = max(0,(int)floor((y-mnMinY-factorY)*mfGridElementHeightInv));
-    if(nMinCellY>=FRAME_GRID_ROWS)
+    const int nMinCellY = max(0,(int)floor((y-mpCamera->mnMinY-factorY)*mpCamera->mfGridElementHeightInv));
+    if(nMinCellY>=GeometricCamera::FRAME_GRID_ROWS)
     {
         return vIndices;
     }
 
-    const int nMaxCellY = min((int)FRAME_GRID_ROWS-1,(int)ceil((y-mnMinY+factorY)*mfGridElementHeightInv));
+    const int nMaxCellY = min((int)GeometricCamera::FRAME_GRID_ROWS-1,(int)ceil((y-mpCamera->mnMinY+factorY)*mpCamera->mfGridElementHeightInv));
     if(nMaxCellY<0)
     {
         return vIndices;
@@ -328,11 +304,11 @@ vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const f
 
 bool Frame::PosInGrid(const KeyPointEx &kp, int &posX, int &posY)
 {
-    posX = round((kp.mPos[0]-mnMinX)*mfGridElementWidthInv);
-    posY = round((kp.mPos[1]-mnMinY)*mfGridElementHeightInv);
+    posX = round((kp.mPos[0]-mpCamera->mnMinX)*mpCamera->mfGridElementWidthInv);
+    posY = round((kp.mPos[1]-mpCamera->mnMinY)*mpCamera->mfGridElementHeightInv);
 
     //Keypoint's coordinates are undistorted, which could cause to go out of the image
-    if(posX<0 || posX>=FRAME_GRID_COLS || posY<0 || posY>=FRAME_GRID_ROWS)
+    if(posX<0 || posX>=GeometricCamera::FRAME_GRID_COLS || posY<0 || posY>=GeometricCamera::FRAME_GRID_ROWS)
         return false;
 
     return true;
@@ -347,37 +323,6 @@ void Frame::ComputeBoW(Map* pMap)
         for (int j=0;j<mDescriptors.rows;j++)
             vCurrentDesc[j] = mDescriptors.row(j);
         pMap->mpVoc->transform(vCurrentDesc,mBowVec,mFeatVec,4);
-    }
-}
-
-void Frame::ComputeImageBounds(const cv::Mat &imLeft)
-{
-    if(mpCamera->mnType == mpCamera->CAM_PINHOLE)
-    {
-        cv::Mat mat(4,2,CV_32F);
-        mat.at<float>(0,0)=0.0; mat.at<float>(0,1)=0.0;
-        mat.at<float>(1,0)=imLeft.cols; mat.at<float>(1,1)=0.0;
-        mat.at<float>(2,0)=0.0; mat.at<float>(2,1)=imLeft.rows;
-        mat.at<float>(3,0)=imLeft.cols; mat.at<float>(3,1)=imLeft.rows;
-
-        mat=mat.reshape(2);
-        cv::Mat K = mpCamera->toK();
-        cv::Mat D = mpCamera->toD();
-        cv::undistortPoints(mat,mat,K,D,cv::Mat(),K);
-        mat=mat.reshape(1);
-
-        // Undistort corners
-        mnMinX = min(mat.at<float>(0,0),mat.at<float>(2,0));
-        mnMaxX = max(mat.at<float>(1,0),mat.at<float>(3,0));
-        mnMinY = min(mat.at<float>(0,1),mat.at<float>(1,1));
-        mnMaxY = max(mat.at<float>(2,1),mat.at<float>(3,1));
-    }
-    else
-    {
-        mnMinX = 0.0f;
-        mnMaxX = imLeft.cols;
-        mnMinY = 0.0f;
-        mnMaxY = imLeft.rows;
     }
 }
 

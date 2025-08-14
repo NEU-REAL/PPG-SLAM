@@ -41,9 +41,7 @@ int Matcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, con
 
                 Eigen::Vector2f uv = CurrentFrame.mpCamera->project(x3Dc);
 
-                if (uv(0) < CurrentFrame.mnMinX || uv(0) > CurrentFrame.mnMaxX)
-                    continue;
-                if (uv(1) < CurrentFrame.mnMinY || uv(1) > CurrentFrame.mnMaxY)
+                if (!CurrentFrame.mpCamera->IsInImage(uv(0), uv(1)))
                     continue;
 
                 vector<size_t> vIndices2 = CurrentFrame.GetFeaturesInArea(uv(0), uv(1), th);
@@ -434,7 +432,7 @@ int Matcher::SearchByProjection(KeyFrame *pKF, Sophus::Sim3f &Scw, const vector<
         const Eigen::Vector2f uv = mpCamera->project(p3Dc);
 
         // Point must be inside the image
-        if (!pKF->IsInImage(uv(0), uv(1)))
+        if (!pKF->mpCamera->IsInImage(uv(0), uv(1)))
             continue;
 
         // Depth must be inside the scale invariance region of the point
@@ -818,7 +816,7 @@ int Matcher::Fuse(KeyFrame *pKF, const vector<MapPoint *> &vpMapPoints, const fl
         const Eigen::Vector2f uv = mpCamera->project(p3Dc);
 
         // Point must be inside the image
-        if (!pKF->IsInImage(uv(0), uv(1)))
+        if (!pKF->mpCamera->IsInImage(uv(0), uv(1)))
         {
             count_notinim++;
             continue;
@@ -948,7 +946,7 @@ int Matcher::Fuse(KeyFrame *pKF, Sophus::Sim3f &Scw, const vector<MapPoint *> &v
         const Eigen::Vector2f uv = mpCamera->project(p3Dc);
 
         // Point must be inside the image
-        if (!pKF->IsInImage(uv(0), uv(1)))
+        if (!pKF->mpCamera->IsInImage(uv(0), uv(1)))
             continue;
 
         // Depth must be inside the scale pyramid of the image
@@ -1066,7 +1064,7 @@ int Matcher::SearchBySim3(KeyFrame *pKF1, KeyFrame *pKF2, std::vector<MapPoint *
         const Eigen::Vector2f uv = mpCamera->project(p3Dc2);
 
         // Point must be inside the image
-        if (!pKF2->IsInImage(uv[0], uv[1]))
+        if (!pKF2->mpCamera->IsInImage(uv[0], uv[1]))
             continue;
 
         const float maxDistance = pMP->GetMaxDistanceInvariance();
@@ -1129,7 +1127,7 @@ int Matcher::SearchBySim3(KeyFrame *pKF1, KeyFrame *pKF2, std::vector<MapPoint *
         const Eigen::Vector2f uv = mpCamera->project(p3Dc1);
 
         // Point must be inside the image
-        if (!pKF1->IsInImage(uv[0], uv[1]))
+        if (!pKF1->mpCamera->IsInImage(uv[0], uv[1]))
             continue;
 
         const float maxDistance = pMP->GetMaxDistanceInvariance();
@@ -1214,9 +1212,7 @@ int Matcher::SearchByProjection(Frame &CurrentFrame, KeyFrame *pKF, const set<Ma
 
                 const Eigen::Vector2f uv = CurrentFrame.mpCamera->project(x3Dc);
 
-                if (uv(0) < CurrentFrame.mnMinX || uv(0) > CurrentFrame.mnMaxX)
-                    continue;
-                if (uv(1) < CurrentFrame.mnMinY || uv(1) > CurrentFrame.mnMaxY)
+                if (!CurrentFrame.mpCamera->IsInImage(uv(0), uv(1)))
                     continue;
 
                 // Compute predicted scale level

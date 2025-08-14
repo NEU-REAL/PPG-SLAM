@@ -10,6 +10,7 @@ KannalaBrandt8::KannalaBrandt8(const std::vector<float> &_vParameters, int width
     mnType = CAM_FISHEYE;
     Eigen::Matrix3f eigenK = toK_();
     mpTvr = new TwoViewReconstruction(eigenK);
+    InitializeImageBounds();
 }
 
 Eigen::Vector2d KannalaBrandt8::project(const Eigen::Vector3d &v3D)
