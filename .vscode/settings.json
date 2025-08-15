@@ -100,7 +100,10 @@
         "stream_ref": "cpp",
         "geometry": "cpp",
         "svd": "cpp",
-        "typeindex": "cpp"
+        "typeindex": "cpp",
+        "stdvector": "cpp",
+        "lu": "cpp",
+        "matrixfunctions": "cpp"
     },
     "ros.distro": "melodic",
     "C_Cpp.errorSquiggles": "disabled",

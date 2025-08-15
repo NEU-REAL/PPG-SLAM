@@ -43,7 +43,7 @@ void MSTracking::Launch(Map* pMap, const string &strNet)
 }
 
 
-Sophus::SE3f MSTracking::GrabImageMonocular(const cv::Mat &im, const double &timestamp, string filename)
+SE3f MSTracking::GrabImageMonocular(const cv::Mat &im, const double &timestamp, string filename)
 {
     mImGray = im;
     mCurrentFrame = Frame(mImGray, timestamp, mpExtractor, mpCamera, mpImuCalib, &mLastFrame);
@@ -254,7 +254,7 @@ void MSTracking::Track()
             mLastFrame = Frame(mCurrentFrame);
         else
         {
-            Sophus::SE3f Tcr_ = mCurrentFrame.GetPose() * mCurrentFrame.mpReferenceKF->GetPoseInverse();
+            SE3f Tcr_ = mCurrentFrame.GetPose() * mCurrentFrame.mpReferenceKF->GetPoseInverse();
             mlRelativeFramePoses.push_back(Tcr_);
             mlpReferences.push_back(mCurrentFrame.mpReferenceKF);
             mlFrameTimes.push_back(mCurrentFrame.mTimeStamp);
@@ -373,7 +373,7 @@ void MSTracking::Track()
                 // Update motion model
                 if (mLastFrame.HasPose() && mCurrentFrame.HasPose())
                 {
-                    Sophus::SE3f LastTwc = mLastFrame.GetPose().inverse();
+                    SE3f LastTwc = mLastFrame.GetPose().inverse();
                     mVelocity = mCurrentFrame.GetPose() * LastTwc;
                 }
                 // Clean VO matches
@@ -406,7 +406,7 @@ void MSTracking::Track()
                 // Store frame pose information to retrieve the complete camera trajectory afterwards.
                 if (mCurrentFrame.HasPose())
                 {
-                    Sophus::SE3f Tcr_ = mCurrentFrame.GetPose() * mCurrentFrame.mpReferenceKF->GetPoseInverse();
+                    SE3f Tcr_ = mCurrentFrame.GetPose() * mCurrentFrame.mpReferenceKF->GetPoseInverse();
                     mlRelativeFramePoses.push_back(Tcr_);
                     mlpReferences.push_back(mCurrentFrame.mpReferenceKF);
                     mlFrameTimes.push_back(mCurrentFrame.mTimeStamp);
@@ -491,7 +491,7 @@ void MSTracking::MonocularInitialization()
             return;
         }
 
-        Sophus::SE3f Tcw;
+        SE3f Tcw;
         vector<bool> vbTriangulated; // Triangulated Correspondences (mvIniMatches)
 
         if (mpCamera->ReconstructWithTwoViews(mInitialFrame.mvKeysUn, mCurrentFrame.mvKeysUn, mvIniMatches, Tcw, mvIniP3D, vbTriangulated))
@@ -506,7 +506,7 @@ void MSTracking::MonocularInitialization()
             }
 
             // Set Frame Poses
-            mInitialFrame.SetPose(Sophus::SE3f());
+            mInitialFrame.SetPose(SE3f());
             mCurrentFrame.SetPose(Tcw);
 
             CreateInitialMapMonocular();
@@ -625,7 +625,7 @@ void MSTracking::CreateInitialMapMonocular()
     }
 
     // Scale initial baseline
-    Sophus::SE3f Tc2w = pKFcur->GetPose();
+    SE3f Tc2w = pKFcur->GetPose();
     Tc2w.translation() *= invMedianDepth;
     pKFcur->SetPose(Tc2w);
 
@@ -1175,7 +1175,7 @@ bool MSTracking::Relocalization()
             // If a Camera Pose is computed, optimize
             if (bTcw)
             {
-                Sophus::SE3f Tcw(eigTcw);
+                SE3f Tcw(eigTcw);
                 mCurrentFrame.SetPose(Tcw);
                 // Tcw.copyTo(mCurrentFrame.mTcw);
 
@@ -1426,7 +1426,7 @@ void MSTracking::InitializeIMU(float priorG, float priorA, bool bFIBA)
             Rwg = Eigen::Matrix3f::Identity();
         } else {
             try {
-                Rwg = Sophus::SO3f::exp(vzg).matrix();
+                Rwg = SO3f::exp(vzg).matrix();
             } catch (const std::exception& e) {
                 std::cout << "Warning: SO3::exp failed in Tracking: " << e.what() << std::endl;
                 Rwg = Eigen::Matrix3f::Identity();
@@ -1457,7 +1457,7 @@ void MSTracking::InitializeIMU(float priorG, float priorA, bool bFIBA)
     {
         unique_lock<mutex> lock(mpMap->mMutexMapUpdate);
         if ((fabs(mScale - 1.f) > 0.00001)) {
-            Sophus::SE3f Twg(mRwg.cast<float>().transpose(), Eigen::Vector3f::Zero());
+            SE3f Twg(mRwg.cast<float>().transpose(), Eigen::Vector3f::Zero());
             mpMap->ApplyScaledRotation(Twg, mScale, true);
             UpdateFrameIMU(mScale, vpKF[0]->GetImuBias(), mpLastKeyFrame);
         }
@@ -1593,8 +1593,6 @@ void MSTracking::ScaleRefinement()
     lpKF.push_front(pKF);
     vector<KeyFrame*> vpKF(lpKF.begin(),lpKF.end());
 
-    const int N = vpKF.size();
-
     mRwg = Eigen::Matrix3d::Identity();
     mScale=1.0;
 
@@ -1607,12 +1605,12 @@ void MSTracking::ScaleRefinement()
         return;
     }
     
-    Sophus::SO3d so3wg(mRwg);
+    SO3d so3wg(mRwg);
     // Before this line we are not changing the map
     unique_lock<mutex> lock(mpMap->mMutexMapUpdate);
     if ((fabs(mScale-1.f)>0.002))
     {
-        Sophus::SE3f Tgw(mRwg.cast<float>().transpose(),Eigen::Vector3f::Zero());
+        SE3f Tgw(mRwg.cast<float>().transpose(),Eigen::Vector3f::Zero());
         mpMap->ApplyScaledRotation(Tgw,mScale,true);
         UpdateFrameIMU(mScale,mpLastKeyFrame->GetImuBias(),mpLastKeyFrame);
     }

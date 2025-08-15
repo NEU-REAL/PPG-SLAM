@@ -16,7 +16,7 @@ const float eps = 1e-4;
 
 // ==================== CALIB CLASS IMPLEMENTATION ====================
 
-Calib::Calib(const Sophus::SE3<float> &Tbc, const float &ng, const float &na, 
+Calib::Calib(const SE3<float> &Tbc, const float &ng, const float &na, 
               const float &ngw, const float &naw, const float &freq)
 {
     Set(Tbc, ng, na, ngw, naw);
@@ -35,7 +35,7 @@ Calib::Calib(const Calib &calib)
     mImuPer = calib.mImuPer;
 }
 
-void Calib::Set(const Sophus::SE3<float> &sophTbc, const float &ng, const float &na, 
+void Calib::Set(const SE3<float> &sophTbc, const float &ng, const float &na, 
                 const float &ngw, const float &naw) 
 {
     mbIsSet = true;
@@ -78,7 +78,7 @@ Eigen::Matrix3f RightJacobianSO3(const float &x, const float &y, const float &z)
     const float d = sqrt(d2);
     Eigen::Vector3f v;
     v << x, y, z;
-    Eigen::Matrix3f W = Sophus::SO3f::hat(v);
+    Eigen::Matrix3f W = SO3f::hat(v);
     if(d<eps) {
         return I;
     }
@@ -100,7 +100,7 @@ Eigen::Matrix3f InverseRightJacobianSO3(const float &x, const float &y, const fl
     const float d = sqrt(d2);
     Eigen::Vector3f v;
     v << x, y, z;
-    Eigen::Matrix3f W = Sophus::SO3f::hat(v);
+    Eigen::Matrix3f W = SO3f::hat(v);
 
     if(d<eps) {
         return I;
@@ -127,7 +127,7 @@ IntegratedRotation::IntegratedRotation(const Eigen::Vector3f &angVel, const Bias
 
     Eigen::Vector3f v;
     v << x, y, z;
-    Eigen::Matrix3f W = Sophus::SO3f::hat(v);
+    Eigen::Matrix3f W = SO3f::hat(v);
     if(d<eps)
     {
         deltaR = Eigen::Matrix3f::Identity() + W;
@@ -241,7 +241,7 @@ void Preintegrated::IntegrateNewMeasurement(const Eigen::Vector3f &acceleration,
     dV = dV + dR*acc*dt;
 
     // Compute velocity and position parts of matrices A and B (rely on non-updated delta rotation)
-    Eigen::Matrix<float,3,3> Wacc = Sophus::SO3f::hat(acc);
+    Eigen::Matrix<float,3,3> Wacc = SO3f::hat(acc);
 
     A.block<3,3>(3,0) = -dR*dt*Wacc;
     A.block<3,3>(6,0) = -0.5f*dR*dt*dt*Wacc;
@@ -338,7 +338,7 @@ Eigen::Matrix3f Preintegrated::GetDeltaRotation(const Bias &b_)
     }
     
     try {
-        return NormalizeRotation(dR * Sophus::SO3f::exp(rotation_vector).matrix());
+        return NormalizeRotation(dR * SO3f::exp(rotation_vector).matrix());
     } catch (const std::exception& e) {
         std::cout << "Warning: SO3::exp failed in GetDeltaRotation: " << e.what() << std::endl;
         return NormalizeRotation(dR);
@@ -376,7 +376,7 @@ Eigen::Matrix3f Preintegrated::GetUpdatedDeltaRotation()
     }
     
     try {
-        return NormalizeRotation(dR * Sophus::SO3f::exp(rotation_vector).matrix());
+        return NormalizeRotation(dR * SO3f::exp(rotation_vector).matrix());
     } catch (const std::exception& e) {
         std::cout << "Warning: SO3::exp failed in GetUpdatedDeltaRotation: " << e.what() << std::endl;
         return NormalizeRotation(dR);

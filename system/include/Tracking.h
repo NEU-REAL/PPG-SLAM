@@ -11,6 +11,7 @@
 #include "PPGExtractor.h"
 #include "System.h"
 #include "IMU.h"
+#include "SE3.h"
 
 #include "GeometricCamera.h"
 
@@ -52,7 +53,7 @@ public:
     void Launch(Map* pMap, const string &strNet);
 
     // Preprocess the input and call Track(). Extract features and performs stereo matching.
-    Sophus::SE3f GrabImageMonocular(const cv::Mat &im, const double &timestamp, string filename);
+    SE3f GrabImageMonocular(const cv::Mat &im, const double &timestamp, string filename);
     void GrabImuData(const IMU::Point &imuMeasurement);
 
     void UpdateFrameIMU(const float s, const IMU::Bias &b, KeyFrame* pCurrentKeyFrame);
@@ -82,7 +83,7 @@ public:
 
     // Lists used to recover the full camera trajectory at the end of the execution.
     // Basically we store the reference keyframe for each frame and its relative transformation
-    list<Sophus::SE3f> mlRelativeFramePoses;
+    list<SE3f> mlRelativeFramePoses;
     list<KeyFrame*> mlpReferences;
     list<double> mlFrameTimes;
     list<bool> mlbLost;
@@ -158,7 +159,7 @@ private:
     int mnMatchesInliers;
     
     //Motion Model
-    Sophus::SE3f mVelocity;
+    SE3f mVelocity;
 
     // IMU initialization variables
     Eigen::Matrix3d mRwg;

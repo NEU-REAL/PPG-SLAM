@@ -209,7 +209,7 @@ void ImuCamPose::Update(const double *pu)
     const Eigen::Matrix3d Rbw = Rwb.transpose();
     const Eigen::Vector3d tbw = -Rbw * twb;
 
-    for(int i=0; i<pCamera.size(); i++)
+    for(unsigned int i=0; i<pCamera.size(); i++)
     {
         Rcw[i] = Rcb[i] * Rbw;
         tcw[i] = Rcb[i] * tbw + tcb[i];
@@ -246,7 +246,7 @@ void ImuCamPose::UpdateW(const double *pu)
     const Eigen::Matrix3d Rbw = Rwb.transpose();
     const Eigen::Vector3d tbw = -Rbw * twb;
 
-    for(int i=0; i<pCamera.size(); i++)
+    for(unsigned int i=0; i<pCamera.size(); i++)
     {
         Rcw[i] = Rcb[i] * Rbw;
         tcw[i] = Rcb[i] * tbw+tcb[i];

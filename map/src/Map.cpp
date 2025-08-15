@@ -209,21 +209,21 @@ bool Map::isImuInitialized()
     return mbImuInitialized;
 }
 
-void Map::ApplyScaledRotation(const Sophus::SE3f &T, const float s, const bool bScaledVel)
+void Map::ApplyScaledRotation(const SE3f &T, const float s, const bool bScaledVel)
 {
     unique_lock<mutex> lock(mMutexMap);
 
-    Sophus::SE3f Tyw = T;
+    SE3f Tyw = T;
     Eigen::Matrix3f Ryw = Tyw.rotationMatrix();
     Eigen::Vector3f tyw = Tyw.translation();
 
     // Transform keyframes
     for(auto pKF : mspKeyFrames)
     {
-        Sophus::SE3f Twc = pKF->GetPoseInverse();
+        SE3f Twc = pKF->GetPoseInverse();
         Twc.translation() *= s;
-        Sophus::SE3f Tyc = Tyw * Twc;
-        Sophus::SE3f Tcy = Tyc.inverse();
+        SE3f Tyc = Tyw * Twc;
+        SE3f Tcy = Tyc.inverse();
         pKF->SetPose(Tcy);
         
         Eigen::Vector3f Vw = pKF->GetVelocity();
@@ -548,7 +548,7 @@ void Map::TriangulateNewMapPoints(KeyFrame* pNewKF, const vector<KeyFrame*>& vpN
     const float th = 0.6f;
     Matcher matcher(mpCamera, th);
 
-    Sophus::SE3<float> sophTcw1 = pNewKF->GetPose();
+    SE3<float> sophTcw1 = pNewKF->GetPose();
     Eigen::Matrix<float,3,4> eigTcw1 = sophTcw1.matrix3x4();
     Eigen::Matrix<float,3,3> Rcw1 = eigTcw1.block<3,3>(0,0);
     Eigen::Vector3f tcw1 = sophTcw1.translation();
@@ -560,7 +560,7 @@ void Map::TriangulateNewMapPoints(KeyFrame* pNewKF, const vector<KeyFrame*>& vpN
         vector<pair<size_t,size_t>> vMatchedIndices;
         matcher.SearchForTriangulation(pNewKF, pKF2, vMatchedIndices, true);
 
-        Sophus::SE3<float> sophTcw2 = pKF2->GetPose();
+        SE3<float> sophTcw2 = pKF2->GetPose();
         Eigen::Matrix<float,3,4> eigTcw2 = sophTcw2.matrix3x4();
         Eigen::Matrix<float,3,3> Rcw2 = eigTcw2.block<3,3>(0,0);
         Eigen::Vector3f tcw2 = sophTcw2.translation();

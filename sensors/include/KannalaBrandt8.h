@@ -60,7 +60,7 @@ public:
     bool ReconstructWithTwoViews(const std::vector<KeyPointEx> &vKeys1, 
                                const std::vector<KeyPointEx> &vKeys2, 
                                const std::vector<int> &vMatches12,
-                               Sophus::SE3f &T21, 
+                               SE3f &T21, 
                                std::vector<cv::Point3f> &vP3D, 
                                std::vector<bool> &vbTriangulated) override;
 

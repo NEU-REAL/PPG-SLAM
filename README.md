@@ -18,15 +18,17 @@ Different inter-frame feature matching methods and various structured landmarks 
 - Ubuntu 22.04
 - ROS-Humble
 
-### 2.2 Eigen && OpenCV && LibTorch
+### 2.2 Thirdparties
 
-Eigen >= 3.3.7,      Follow [Eigen Installation](https://eigen.tuxfamily.org/index.php?title=Main_Page).
+Eigen >= 3.3, Follow [Eigen Installation](https://eigen.tuxfamily.org/index.php?title=Main_Page).
 
-OpenCV >= 4.0.0,  Follow [Opencv Installation](http://opencv.org/).
+OpenCV >= 4.2.0, Follow [Opencv Installation](http://opencv.org/).
 
-LibTorch (CUDA >=12.6),  Follow [LibTorch Installation](https://pytorch.org/get-started/locally/).
+LibTorch (CUDA >=12.6), Follow [LibTorch Installation](https://pytorch.org/get-started/locally/).
 
-Pangolin,  Follow [Pangolin Installation](github.com/stevenlovegrove/Pangolin).
+Pangolin, Follow [Pangolin Installation](github.com/stevenlovegrove/Pangolin).
+
+g2o (tag = 20230223_git), Follow[G2o Installation](https://github.com/RainerKuemmerle/g2o).
 
 ## 3. Build
 

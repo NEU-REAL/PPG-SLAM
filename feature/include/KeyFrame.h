@@ -14,10 +14,11 @@
 // ==================== THIRD-PARTY INCLUDES ====================
 #include <opencv2/opencv.hpp>
 #include <Eigen/Core>
-#include <sophus/se3.hpp>
+#include <Eigen/Geometry>
 #include "DBoW3/DBoW3.h"
 
 // ==================== LOCAL INCLUDES ====================
+#include "SE3.h"
 #include "MapPoint.h"
 #include "PPGExtractor.h"
 #include "IMU.h"
@@ -49,12 +50,12 @@ public:
     // ==================== POSE MANAGEMENT ====================
     
     /// Pose setter functions
-    void SetPose(const Sophus::SE3f &Tcw);          ///< Set camera pose
+    void SetPose(const SE3f &Tcw);          ///< Set camera pose
     void SetVelocity(const Eigen::Vector3f &Vw_);   ///< Set camera velocity
 
     /// Camera pose getter functions
-    Sophus::SE3f GetPose();                         ///< Get camera pose
-    Sophus::SE3f GetPoseInverse();                  ///< Get inverse camera pose
+    SE3f GetPose();                         ///< Get camera pose
+    SE3f GetPoseInverse();                  ///< Get inverse camera pose
     Eigen::Vector3f GetCameraCenter();              ///< Get camera center position
     Eigen::Matrix3f GetRotation();                  ///< Get camera rotation matrix
     Eigen::Vector3f GetTranslation();               ///< Get camera translation vector
@@ -62,7 +63,7 @@ public:
     /// IMU pose getter functions
     Eigen::Vector3f GetImuPosition();               ///< Get IMU position
     Eigen::Matrix3f GetImuRotation();               ///< Get IMU rotation matrix
-    Sophus::SE3f GetImuPose();                      ///< Get IMU pose transformation
+    SE3f GetImuPose();                      ///< Get IMU pose transformation
 
     /// Velocity management functions
     Eigen::Vector3f GetVelocity();                  ///< Get camera velocity
@@ -164,8 +165,8 @@ public:
     float mPlaceRecognitionScore;             ///< Place recognition score
 
     // ==================== GLOBAL BUNDLE ADJUSTMENT ====================
-    Sophus::SE3f mTcwGBA;              ///< Pose after global bundle adjustment
-    Sophus::SE3f mTcwBefGBA;           ///< Pose before global bundle adjustment
+    SE3f mTcwGBA;              ///< Pose after global bundle adjustment
+    SE3f mTcwBefGBA;           ///< Pose before global bundle adjustment
     Eigen::Vector3f mVwbGBA;           ///< Velocity after global bundle adjustment
     Eigen::Vector3f mVwbBefGBA;        ///< Velocity before global bundle adjustment
     IMU::Bias mBiasGBA;                ///< IMU bias after global bundle adjustment
@@ -184,7 +185,7 @@ public:
     DBoW3::FeatureVector mFeatVec;     ///< Feature vector for fast matching
 
     // ==================== RELATIVE POSE ====================
-    Sophus::SE3f mTcp;                 ///< Pose relative to previous key frame
+    SE3f mTcp;                 ///< Pose relative to previous key frame
 
     // ==================== IMU INTEGRATION ====================
     KeyFrame* mPrevKF;                 ///< Pointer to previous key frame in temporal sequence
@@ -199,9 +200,9 @@ public:
 
 public:
     // ==================== POSE AND TRANSFORMATION ====================
-    Sophus::SE3<float> mTcw;           ///< Camera pose: transformation from world to camera coordinates
+    SE3<float> mTcw;           ///< Camera pose: transformation from world to camera coordinates
     Eigen::Matrix3f mRcw;              ///< Rotation matrix from world to camera coordinates
-    Sophus::SE3<float> mTwc;           ///< Inverse camera pose: transformation from camera to world coordinates
+    SE3<float> mTwc;           ///< Inverse camera pose: transformation from camera to world coordinates
     Eigen::Matrix3f mRwc;              ///< Rotation matrix from camera to world coordinates
 
     // ==================== IMU STATE ====================

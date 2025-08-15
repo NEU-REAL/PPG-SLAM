@@ -31,7 +31,7 @@ KeyFrame::KeyFrame():
 
 // ==================== POSE OPERATIONS ====================
 
-void KeyFrame::SetPose(const Sophus::SE3f &Tcw)
+void KeyFrame::SetPose(const SE3f &Tcw)
 {
     std::unique_lock<std::mutex> lock(mMutexPose);
 
@@ -53,13 +53,13 @@ void KeyFrame::SetVelocity(const Eigen::Vector3f &Vw)
     mbHasVelocity = true;
 }
 
-Sophus::SE3f KeyFrame::GetPose()
+SE3f KeyFrame::GetPose()
 {
     std::unique_lock<std::mutex> lock(mMutexPose);
     return mTcw;
 }
 
-Sophus::SE3f KeyFrame::GetPoseInverse()
+SE3f KeyFrame::GetPoseInverse()
 {
     std::unique_lock<std::mutex> lock(mMutexPose);
     return mTwc;
@@ -83,7 +83,7 @@ Eigen::Matrix3f KeyFrame::GetImuRotation()
     return (mTwc * mpImuCalib->mTcb).rotationMatrix();
 }
 
-Sophus::SE3f KeyFrame::GetImuPose()
+SE3f KeyFrame::GetImuPose()
 {
     std::unique_lock<std::mutex> lock(mMutexPose);
     return mTwc * mpImuCalib->mTcb;

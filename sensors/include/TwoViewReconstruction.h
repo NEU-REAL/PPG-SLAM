@@ -8,8 +8,9 @@
 
 #include <opencv2/opencv.hpp>
 #include <Eigen/Core>
+#include <Eigen/Geometry>
 #include <unordered_set>
-#include <sophus/se3.hpp>
+#include "SE3.h"
 #include "GeometricCamera.h"
 
 class KeyPointEx;
@@ -31,7 +32,7 @@ public:
 
     /// Reconstruct motion and structure from two views
     bool Reconstruct(const std::vector<KeyPointEx> &vKeys1, const std::vector<KeyPointEx> &vKeys2, const std::vector<int> &vMatches12,
-                     Sophus::SE3f &T21, std::vector<cv::Point3f> &vP3D, std::vector<bool> &vbTriangulated);
+                     SE3f &T21, std::vector<cv::Point3f> &vP3D, std::vector<bool> &vbTriangulated);
 
 private:
     // ==================== RANSAC ESTIMATION ====================
@@ -52,10 +53,10 @@ private:
     // ==================== RECONSTRUCTION METHODS ====================
 
     bool ReconstructF(std::vector<bool> &vbMatchesInliers, Eigen::Matrix3f &F21, Eigen::Matrix3f &K,
-                      Sophus::SE3f &T21, std::vector<cv::Point3f> &vP3D, std::vector<bool> &vbTriangulated, float minParallax, int minTriangulated);
+                      SE3f &T21, std::vector<cv::Point3f> &vP3D, std::vector<bool> &vbTriangulated, float minParallax, int minTriangulated);
 
     bool ReconstructH(std::vector<bool> &vbMatchesInliers, Eigen::Matrix3f &H21, Eigen::Matrix3f &K,
-                      Sophus::SE3f &T21, std::vector<cv::Point3f> &vP3D, std::vector<bool> &vbTriangulated, float minParallax, int minTriangulated);
+                      SE3f &T21, std::vector<cv::Point3f> &vP3D, std::vector<bool> &vbTriangulated, float minParallax, int minTriangulated);
 
     // ==================== UTILITY FUNCTIONS ====================
 

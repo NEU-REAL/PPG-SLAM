@@ -1,19 +1,14 @@
-include_directories(
-    ../sensors/include
-    ../feature/include
-    ../map/include
-    include
-    ${OpenCV_INCLUDE_DIRS}
-) 
-
-add_library(Optimizing
-    include/G2oVertex.h
+add_library(Optimizing SHARED
     src/G2oEdge.cpp
     src/G2oVertex.cpp
-    src/Optimizer.cpp
+    src/OptimizerLBA.cpp
+    src/OptimizerGBA.cpp
+    src/OptimizerPose.cpp
+    src/OptimizerInertial.cpp
+    src/OptimizerGraph.cpp
 )
 
 target_link_libraries(Optimizing
-Sensors Feature Matching Map
-${PROJECT_SOURCE_DIR}/Thirdparty/g2o/lib/libg2o.so
+Sensors Feature Map
+${g2o_LIBRARIES}
 )

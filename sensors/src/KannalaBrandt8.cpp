@@ -125,7 +125,7 @@ Eigen::Matrix<double, 2, 3> KannalaBrandt8::projectJac(const Eigen::Vector3d &v3
 // ==================== SLAM FUNCTIONS ====================
 
 bool KannalaBrandt8::ReconstructWithTwoViews( const std::vector<KeyPointEx> &vKeys1, const std::vector<KeyPointEx> &vKeys2, 
-                                const std::vector<int> &vMatches12, Sophus::SE3f &T21, std::vector<cv::Point3f> &vP3D, 
+                                const std::vector<int> &vMatches12, SE3f &T21, std::vector<cv::Point3f> &vP3D, 
                                 std::vector<bool> &vbTriangulated)
 {
     return mpTvr->Reconstruct(vKeys1, vKeys2, vMatches12, T21, vP3D, vbTriangulated);

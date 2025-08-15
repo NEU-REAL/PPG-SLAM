@@ -9,8 +9,8 @@
 #include <opencv2/core/core.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/features2d/features2d.hpp>
-#include <sophus/se3.hpp>
 #include <Eigen/Geometry>
+#include "SE3.h"
 
 // Forward declarations
 class TwoViewReconstruction;
@@ -61,7 +61,7 @@ public:
     virtual bool ReconstructWithTwoViews(const std::vector<KeyPointEx>& vKeys1, 
                                         const std::vector<KeyPointEx>& vKeys2,
                                         const std::vector<int>& vMatches12, 
-                                        Sophus::SE3f& T21, 
+                                        SE3f& T21, 
                                         std::vector<cv::Point3f>& vP3D,
                                         std::vector<bool>& vbTriangulated) = 0;
 

@@ -4,16 +4,23 @@ project(ORB_SLAM3)
 SET(CMAKE_BUILD_TYPE Release) 
 MESSAGE("Build type: " ${CMAKE_BUILD_TYPE}) 
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}  -Wall -O3 -g -std=c++17")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -O3 -g -std=c++17")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}  -Wall -O1 -g -std=c++17 -fPIC")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -O1 -g -std=c++17 -fPIC")
 set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -march=native")
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -march=native")
 
 find_package(OpenCV 4 REQUIRED)
-find_package(Eigen3 3.1.0 REQUIRED)
+find_package(Eigen3 REQUIRED)
+find_package(g2o REQUIRED)
 find_package(Pangolin REQUIRED)
 find_package(Torch REQUIRED PATHS /home/z/module/libtorch)
 find_package(DBoW3 REQUIRED)
+
+# Manually set the paths for g2o
+set(g2o_INCLUDE_DIRS "/usr/local/include")
+set(g2o_LIBRARIES 
+    g2o_core g2o_types_slam3d g2o_solver_dense g2o_types_sba g2o_types_sim3 g2o_solver_eigen fmt
+)
 
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/lib)
@@ -25,8 +32,7 @@ include_directories(
     ${OpenCV_INCLUDE_DIRS}
     ${TORCH_INCLUDE_DIRS}
     ${DBoW3_INCLUDE_DIRS}
-    ${PROJECT_SOURCE_DIR}/Thirdparty/Sophus
-    ${PROJECT_SOURCE_DIR}/Thirdparty/g2o
+    ${g2o_INCLUDE_DIRS}
     ${PROJECT_SOURCE_DIR}/sensors/include
     ${PROJECT_SOURCE_DIR}/feature/include
     ${PROJECT_SOURCE_DIR}/map/include
@@ -35,7 +41,6 @@ include_directories(
     ${PROJECT_SOURCE_DIR}/system/include
 )
 
-add_subdirectory(${PROJECT_SOURCE_DIR}/Thirdparty/g2o)
 add_subdirectory(${PROJECT_SOURCE_DIR}/sensors)
 add_subdirectory(${PROJECT_SOURCE_DIR}/feature)
 add_subdirectory(${PROJECT_SOURCE_DIR}/matching)
@@ -49,51 +54,39 @@ link_directories(${PROJECT_SOURCE_DIR}/lib)
 add_executable(mono_inertial_euroc try_euroc.cpp)
 target_link_libraries(mono_inertial_euroc 
 Sensors Feature Matching Map Optimizing System
+${g2o_LIBRARIES}
 ${DBoW3_LIBS}
 ${OpenCV_LIBS}
-${EIGEN3_LIBS}
 ${Pangolin_LIBRARIES}
 ${TORCH_LIBRARIES}
--lboost_serialization
--lcrypto
-${PROJECT_SOURCE_DIR}/Thirdparty/g2o/lib/libg2o.so
 )
 
 add_executable(mono_inertial_tum_vi try_tumvi.cpp)
 target_link_libraries(mono_inertial_tum_vi 
 Sensors Feature Matching Map Optimizing System
+${g2o_LIBRARIES}
 ${DBoW3_LIBS}
 ${OpenCV_LIBS}
-${EIGEN3_LIBS}
 ${Pangolin_LIBRARIES}
 ${TORCH_LIBRARIES}
--lboost_serialization
--lcrypto
-${PROJECT_SOURCE_DIR}/Thirdparty/g2o/lib/libg2o.so
 )
 
 add_executable(mono_inertial_uma try_uma.cpp)
 target_link_libraries(mono_inertial_uma  
 Sensors Feature Matching Map Optimizing System
+${g2o_LIBRARIES}
 ${DBoW3_LIBS}
 ${OpenCV_LIBS}
-${EIGEN3_LIBS}
 ${Pangolin_LIBRARIES}
 ${TORCH_LIBRARIES}
--lboost_serialization
--lcrypto
-${PROJECT_SOURCE_DIR}/Thirdparty/g2o/lib/libg2o.so
 )
 
 add_executable(train_vocabulary trainBow.cpp)
 target_link_libraries(train_vocabulary  
 Sensors Feature Matching Map Optimizing System
+${g2o_LIBRARIES}
 ${DBoW3_LIBS}
 ${OpenCV_LIBS}
-${EIGEN3_LIBS}
 ${Pangolin_LIBRARIES}
 ${TORCH_LIBRARIES}
--lboost_serialization
--lcrypto
-${PROJECT_SOURCE_DIR}/Thirdparty/g2o/lib/libg2o.so
 )

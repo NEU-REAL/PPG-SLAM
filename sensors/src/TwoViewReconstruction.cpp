@@ -23,7 +23,7 @@ TwoViewReconstruction::TwoViewReconstruction(const Eigen::Matrix3f& k, float sig
 // ==================== MAIN RECONSTRUCTION INTERFACE ====================
 
 bool TwoViewReconstruction::Reconstruct(const std::vector<KeyPointEx>& vKeys1, const std::vector<KeyPointEx>& vKeys2, const vector<int> &vMatches12,
-                                            Sophus::SE3f &T21, vector<cv::Point3f> &vP3D, vector<bool> &vbTriangulated)
+                                            SE3f &T21, vector<cv::Point3f> &vP3D, vector<bool> &vbTriangulated)
 {
     mvKeys1.clear();
     mvKeys2.clear();
@@ -462,7 +462,7 @@ float TwoViewReconstruction::CheckFundamental(const Eigen::Matrix3f &F21, vector
 // ==================== RECONSTRUCTION METHODS ====================
 
 bool TwoViewReconstruction::ReconstructF(vector<bool> &vbMatchesInliers, Eigen::Matrix3f &F21, Eigen::Matrix3f &K,
-                                            Sophus::SE3f &T21, vector<cv::Point3f> &vP3D, vector<bool> &vbTriangulated, float minParallax, int minTriangulated)
+                                            SE3f &T21, vector<cv::Point3f> &vP3D, vector<bool> &vbTriangulated, float minParallax, int minTriangulated)
 {
     int N=0;
     for(size_t i=0, iend = vbMatchesInliers.size() ; i<iend; i++)
@@ -519,7 +519,7 @@ bool TwoViewReconstruction::ReconstructF(vector<bool> &vbMatchesInliers, Eigen::
             vP3D = vP3D1;
             vbTriangulated = vbTriangulated1;
 
-            T21 = Sophus::SE3f(R1, t1);
+            T21 = SE3f(R1, t1);
             return true;
         }
     }else if(maxGood==nGood2)
@@ -529,7 +529,7 @@ bool TwoViewReconstruction::ReconstructF(vector<bool> &vbMatchesInliers, Eigen::
             vP3D = vP3D2;
             vbTriangulated = vbTriangulated2;
 
-            T21 = Sophus::SE3f(R2, t1);
+            T21 = SE3f(R2, t1);
             return true;
         }
     }else if(maxGood==nGood3)
@@ -539,7 +539,7 @@ bool TwoViewReconstruction::ReconstructF(vector<bool> &vbMatchesInliers, Eigen::
             vP3D = vP3D3;
             vbTriangulated = vbTriangulated3;
 
-            T21 = Sophus::SE3f(R1, t2);
+            T21 = SE3f(R1, t2);
             return true;
         }
     }else if(maxGood==nGood4)
@@ -549,7 +549,7 @@ bool TwoViewReconstruction::ReconstructF(vector<bool> &vbMatchesInliers, Eigen::
             vP3D = vP3D4;
             vbTriangulated = vbTriangulated4;
 
-            T21 = Sophus::SE3f(R2, t2);
+            T21 = SE3f(R2, t2);
             return true;
         }
     }
@@ -558,7 +558,7 @@ bool TwoViewReconstruction::ReconstructF(vector<bool> &vbMatchesInliers, Eigen::
 }
 
 bool TwoViewReconstruction::ReconstructH(vector<bool> &vbMatchesInliers, Eigen::Matrix3f &H21, Eigen::Matrix3f &K,
-                                            Sophus::SE3f &T21, vector<cv::Point3f> &vP3D, vector<bool> &vbTriangulated, float minParallax, int minTriangulated)
+                                            SE3f &T21, vector<cv::Point3f> &vP3D, vector<bool> &vbTriangulated, float minParallax, int minTriangulated)
 {
     int N=0;
     for(size_t i=0, iend = vbMatchesInliers.size() ; i<iend; i++)
@@ -713,7 +713,7 @@ bool TwoViewReconstruction::ReconstructH(vector<bool> &vbMatchesInliers, Eigen::
 
     if(secondBestGood<0.75*bestGood && bestParallax>=minParallax && bestGood>minTriangulated && bestGood>0.9*N)
     {
-        T21 = Sophus::SE3f(vR[bestSolutionIdx], vt[bestSolutionIdx]);
+        T21 = SE3f(vR[bestSolutionIdx], vt[bestSolutionIdx]);
         vbTriangulated = bestTriangulated;
 
         return true;

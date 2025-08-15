@@ -438,13 +438,13 @@ void Sim3Solver::ComputeSim3(Eigen::Matrix3f &P1, Eigen::Matrix3f &P2)
         } else {
             vec = 2*ang*vec/vec_norm; //Angle-axis representation. quaternion angle is the half
             
-            // Additional safety check before calling Sophus::SO3f::exp
+            // Additional safety check before calling SO3f::exp
             if (!vec.allFinite()) {
                 std::cout << "Warning: Invalid rotation vector before SO3::exp" << std::endl;
                 mR12i = Eigen::Matrix3f::Identity();
             } else {
                 try {
-                    mR12i = Sophus::SO3f::exp(vec).matrix();
+                    mR12i = SO3f::exp(vec).matrix();
                 } catch (const std::exception& e) {
                     std::cout << "Warning: SO3::exp failed: " << e.what() << std::endl;
                     mR12i = Eigen::Matrix3f::Identity();

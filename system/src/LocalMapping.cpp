@@ -612,7 +612,7 @@ void MSLocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
             Rwg = Eigen::Matrix3f::Identity();
         } else {
             try {
-                Rwg = Sophus::SO3f::exp(vzg).matrix();
+                Rwg = SO3f::exp(vzg).matrix();
             } catch (const std::exception& e) {
                 std::cout << "Warning: SO3::exp failed in LocalMapping: " << e.what() << std::endl;
                 Rwg = Eigen::Matrix3f::Identity();
@@ -643,7 +643,7 @@ void MSLocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
     {
         unique_lock<mutex> lock(mpMap->mMutexMapUpdate);
         if ((fabs(mScale - 1.f) > 0.00001)) {
-            Sophus::SE3f Twg(mRwg.cast<float>().transpose(), Eigen::Vector3f::Zero());
+            SE3f Twg(mRwg.cast<float>().transpose(), Eigen::Vector3f::Zero());
             mpMap->ApplyScaledRotation(Twg, mScale, true);
             MSTracking::get().UpdateFrameIMU(mScale, vpKF[0]->GetImuBias(), mpCurrentKeyFrame);
         }
@@ -814,12 +814,12 @@ void MSLocalMapping::ScaleRefinement()
         return;
     }
     
-    Sophus::SO3d so3wg(mRwg);
+    SO3d so3wg(mRwg);
     // Before this line we are not changing the map
     unique_lock<mutex> lock(mpMap->mMutexMapUpdate);
     if ((fabs(mScale-1.f)>0.002))
     {
-        Sophus::SE3f Tgw(mRwg.cast<float>().transpose(),Eigen::Vector3f::Zero());
+        SE3f Tgw(mRwg.cast<float>().transpose(),Eigen::Vector3f::Zero());
         mpMap->ApplyScaledRotation(Tgw,mScale,true);
         MSTracking::get().UpdateFrameIMU(mScale,mpCurrentKeyFrame->GetImuBias(),mpCurrentKeyFrame);
     }

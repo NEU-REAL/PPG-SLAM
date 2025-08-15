@@ -158,7 +158,7 @@ cv::Mat MSViewing::DrawFrame()
     vector<MapPoint*> vpMapPoints;
     vector<MapEdge*> vpMapEdges;
 
-    Sophus::SE3<float> Tcw;
+    SE3<float> Tcw;
 
     int state; // Tracking state
 
@@ -542,7 +542,7 @@ void MSViewing::DrawCurrentCamera(pangolin::OpenGlMatrix &Twc)
 }
 
 
-void MSViewing::SetCurrentCameraPose(const Sophus::SE3f &Tcw)
+void MSViewing::SetCurrentCameraPose(const SE3f &Tcw)
 {
     unique_lock<mutex> lock(mMutex);
 
@@ -568,13 +568,13 @@ void MSViewing::SetCurrentCameraPose(const Sophus::SE3f &Tcw)
     // Safety check for aveR before calling SO3::exp
     if (!aveR.allFinite()) {
         std::cout << "Warning: Invalid rotation vector in Viewer" << std::endl;
-        mCameraPose.so3() = Sophus::SO3f();  // Identity rotation
+        mCameraPose.so3() = SO3f();  // Identity rotation
     } else {
         try {
-            mCameraPose.so3() = Sophus::SO3f::exp(aveR);
+            mCameraPose.so3() = SO3f::exp(aveR);
         } catch (const std::exception& e) {
             std::cout << "Warning: SO3::exp failed in Viewer: " << e.what() << std::endl;
-            mCameraPose.so3() = Sophus::SO3f();  // Identity rotation
+            mCameraPose.so3() = SO3f();  // Identity rotation
         }
     }
     // mCameraPose = Tcw.inverse();
@@ -606,7 +606,7 @@ void MSViewing::SaveTrajectory(const string &filename)
     vector<KeyFrame*> vpKFs = mpMap->GetAllKeyFrames();
     sort(vpKFs.begin(),vpKFs.end(),[](KeyFrame* pKF1, KeyFrame* pKF2){ return pKF1->mnId < pKF2->mnId; });
 
-    Sophus::SE3f Twb;
+    SE3f Twb;
     Twb = vpKFs[0]->GetImuPose();
 
     ofstream f;
@@ -619,7 +619,7 @@ void MSViewing::SaveTrajectory(const string &filename)
     for(auto lit=MSTracking::get().mlRelativeFramePoses.begin(), lend=MSTracking::get().mlRelativeFramePoses.end();lit!=lend;lit++, lRit++, lT++)
     {
         KeyFrame* pKF = *lRit;
-        Sophus::SE3f Trw;
+        SE3f Trw;
         if (!pKF)
             continue;
         while(pKF->isBad())
@@ -629,7 +629,7 @@ void MSViewing::SaveTrajectory(const string &filename)
         }
         Trw = Trw * pKF->GetPose()*Twb;
 
-        Sophus::SE3f Twb = (pKF->mpImuCalib->mTbc * (*lit) * Trw).inverse();
+        SE3f Twb = (pKF->mpImuCalib->mTbc * (*lit) * Trw).inverse();
         Eigen::Quaternionf q = Twb.unit_quaternion();
         Eigen::Vector3f twb = Twb.translation();
         f << setprecision(6) << (*lT) << " " <<  setprecision(9) << twb(0) << " " << twb(1) << " " << twb(2) << " " << q.w() << " " << q.x() << " " << q.y() << " " << q.z() << endl;
@@ -655,7 +655,7 @@ void MSViewing::SaveKeyFrameTrajectory(const string &filename)
 
         if(!pKF || pKF->isBad())
             continue;
-        Sophus::SE3f Twb = pKF->GetImuPose();
+        SE3f Twb = pKF->GetImuPose();
         Eigen::Quaternionf q = Twb.unit_quaternion();
         Eigen::Vector3f twb = Twb.translation();
         f << setprecision(6) << pKF->mTimeStamp  << " " <<  setprecision(9) << twb(0) << " " << twb(1) << " " << twb(2) << " " << q.w() << " " << q.x() << " " << q.y() << " " << q.z() << endl;

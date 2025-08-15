@@ -1,9 +1,4 @@
-find_package(Pangolin REQUIRED)
-include_directories(
-    ${Pangolin_INCLUDE_DIRS}
-) 
-
-add_library(System
+add_library(System SHARED
     src/LocalMapping.cpp
     src/LoopClosing.cpp
     src/Tracking.cpp

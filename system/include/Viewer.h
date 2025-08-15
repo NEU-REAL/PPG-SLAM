@@ -9,6 +9,7 @@
 #include "Tracking.h"
 #include "System.h"
 #include "Frame.h"
+#include "SE3.h"
 
 #include <mutex>
 
@@ -46,7 +47,7 @@ public:
     void DrawMapEdges();
     void DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph, const bool bDrawInertialGraph);
     void DrawCurrentCamera(pangolin::OpenGlMatrix &Twc);
-    void SetCurrentCameraPose(const Sophus::SE3f &Tcw);
+    void SetCurrentCameraPose(const SE3f &Tcw);
     void GetCurrentOpenGLCameraMatrix(pangolin::OpenGlMatrix &M, pangolin::OpenGlMatrix &MOw);
 
     void SaveTrajectory(const string &filename);
@@ -79,7 +80,7 @@ public:
 
     unsigned int long mnCurFrameID;
 
-    Sophus::SE3<float> mTcw;
+    SE3<float> mTcw;
     GeometricCamera* mpCamera;
 
     vector<MapPoint*> mvpLocalMap;
@@ -92,8 +93,8 @@ public:
     std::atomic<bool> mbStepByStep;
     std::atomic<bool> mbStep;
 
-    Sophus::SE3f mCameraPose;
+    SE3f mCameraPose;
 
-    std::deque<Sophus::SE3f> mCameraPoses;
+    std::deque<SE3f> mCameraPoses;
     std::mutex mMutex;
 };

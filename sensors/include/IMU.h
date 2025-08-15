@@ -13,7 +13,7 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <Eigen/Dense>
-#include <sophus/se3.hpp>
+#include "SE3.h"
 
 namespace IMU
 {
@@ -72,19 +72,19 @@ public:
 class Calib
 {
 public:
-    Calib(const Sophus::SE3<float> &Tbc, const float &ng, const float &na, 
+    Calib(const SE3<float> &Tbc, const float &ng, const float &na, 
           const float &ngw, const float &naw, const float &freq);
     
     Calib(const Calib &calib);
     Calib() : mbIsSet(false) {}
 
     /// Set calibration parameters
-    void Set(const Sophus::SE3<float> &sophTbc, const float &ng, const float &na, 
+    void Set(const SE3<float> &sophTbc, const float &ng, const float &na, 
              const float &ngw, const float &naw);
 
 public:
-    Sophus::SE3<float> mTcb;           ///< Transformation from camera to body (IMU)
-    Sophus::SE3<float> mTbc;           ///< Transformation from body (IMU) to camera
+    SE3<float> mTcb;           ///< Transformation from camera to body (IMU)
+    SE3<float> mTbc;           ///< Transformation from body (IMU) to camera
     Eigen::DiagonalMatrix<float, 6> Cov, CovWalk;  ///< Noise covariance matrices
     bool mbIsSet;                      ///< Whether calibration is set
     float mfFreq;                      ///< IMU frequency

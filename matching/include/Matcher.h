@@ -8,7 +8,7 @@
 #include <vector>
 #include <opencv2/core/core.hpp>
 #include <opencv2/features2d/features2d.hpp>
-#include "sophus/sim3.hpp"
+#include "SE3.h"
 #include "MapPoint.h"
 #include "Frame.h"
 #include "KeyFrame.h"
@@ -28,7 +28,7 @@ public:
     int SearchByProjection(Frame &F, const std::vector<MapPoint *> &vpMapPoints, const float th = 3);
     int SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, const float th);
     int SearchByProjection(Frame &CurrentFrame, KeyFrame *pKF, const std::set<MapPoint *> &sAlreadyFound, const float th, const float descDist);
-    int SearchByProjection(KeyFrame* pKF, Sophus::Sim3f &Scw, const std::vector<MapPoint*> &vpPoints, std::vector<MapPoint*> &vpMatched, int th, float ratioHamming=1.0);
+    int SearchByProjection(KeyFrame* pKF, Sim3f &Scw, const std::vector<MapPoint*> &vpPoints, std::vector<MapPoint*> &vpMatched, int th, float ratioHamming=1.0);
 
     // BoW matching
     /** Search using Bag-of-Words */
@@ -43,12 +43,12 @@ public:
     int SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, std::vector<pair<size_t, size_t>> &vMatchedPairs, const bool bCoarse = false);
     
     /** Search using Sim3 transformation */
-    int SearchBySim3(KeyFrame *pKF1, KeyFrame *pKF2, std::vector<MapPoint *> &vpMatches12, const Sophus::Sim3f &S12, const float th);
+    int SearchBySim3(KeyFrame *pKF1, KeyFrame *pKF2, std::vector<MapPoint *> &vpMatches12, const Sim3f &S12, const float th);
 
     // Map operations
     /** Fuse MapPoints to remove duplicates */
     int Fuse(KeyFrame *pKF, const vector<MapPoint *> &vpMapPoints, const float th = 3.0);
-    int Fuse(KeyFrame *pKF, Sophus::Sim3f &Scw, const std::vector<MapPoint *> &vpPoints, float th, vector<MapPoint *> &vpReplacePoint);
+    int Fuse(KeyFrame *pKF, Sim3f &Scw, const std::vector<MapPoint *> &vpPoints, float th, vector<MapPoint *> &vpReplacePoint);
     
     /** Extend map matches */
     int ExtendMapMatches(Frame &F, const vector<MapPoint *> &vpMapPoints, const float th);

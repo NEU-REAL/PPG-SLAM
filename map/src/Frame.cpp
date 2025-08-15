@@ -157,7 +157,7 @@ void Frame::AssignFeaturesToGrid()
 
 // ==================== POSE MANAGEMENT ====================
 
-void Frame::SetPose(const Sophus::SE3<float> &Tcw) {
+void Frame::SetPose(const SE3<float> &Tcw) {
     mTcw = Tcw;
     UpdatePoseMatrices();
     mbHasPose = true;
@@ -186,8 +186,8 @@ void Frame::SetImuPoseVelocity(const Eigen::Matrix3f &Rwb, const Eigen::Vector3f
     mVw = Vwb;
     mbHasVelocity = true;
 
-    Sophus::SE3f Twb(Rwb, twb);
-    Sophus::SE3f Tbw = Twb.inverse();
+    SE3f Twb(Rwb, twb);
+    SE3f Tbw = Twb.inverse();
 
     mTcw = mpImuCalib->mTcb * Tbw;
 
@@ -199,7 +199,7 @@ void Frame::SetImuPoseVelocity(const Eigen::Matrix3f &Rwb, const Eigen::Vector3f
 
 void Frame::UpdatePoseMatrices()
 {
-    Sophus::SE3<float> Twc = mTcw.inverse();
+    SE3<float> Twc = mTcw.inverse();
     mRwc = Twc.rotationMatrix();
     mOw = Twc.translation();
     mRcw = mTcw.rotationMatrix();
@@ -214,7 +214,7 @@ Eigen::Matrix<float,3,3> Frame::GetImuRotation() {
     return mRwc * mpImuCalib->mTcb.rotationMatrix();
 }
 
-Sophus::SE3<float> Frame::GetImuPose() {
+SE3<float> Frame::GetImuPose() {
     return mTcw.inverse() * mpImuCalib->mTcb;
 }
 

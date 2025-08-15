@@ -13,8 +13,7 @@
 // ==================== THIRD-PARTY INCLUDES ====================
 #include <opencv2/opencv.hpp>
 #include <Eigen/Core>
-#include <sophus/se3.hpp>
-#include <sophus/geometry.hpp>
+#include "SE3.h"
 #include "DBoW3/DBoW3.h"
 
 // ==================== LOCAL INCLUDES ====================
@@ -89,7 +88,7 @@ public:
      * @brief Set camera pose
      * @param Tcw Camera pose transformation
      */
-    void SetPose(const Sophus::SE3<float> &Tcw);
+    void SetPose(const SE3<float> &Tcw);
     
     /**
      * @brief Set IMU pose and velocity
@@ -114,7 +113,7 @@ public:
     // ==================== POSE GETTERS ====================
     
     /// Camera pose getter functions
-    inline Sophus::SE3<float> GetPose() const { return mTcw; }               ///< Get camera pose
+    inline SE3<float> GetPose() const { return mTcw; }               ///< Get camera pose
     inline Eigen::Vector3f GetCameraCenter() { return mOw; }                 ///< Get camera center
     inline Eigen::Matrix3f GetRotationInverse() { return mRwc; }             ///< Get inverse rotation
     inline Eigen::Matrix3f GetRwc() const { return mRwc; }                   ///< Get world to camera rotation
@@ -126,7 +125,7 @@ public:
     Eigen::Vector3f GetVelocity() const;                                     ///< Get IMU velocity
     Eigen::Vector3f GetImuPosition() const;                                  ///< Get IMU position
     Eigen::Matrix3f GetImuRotation();                                        ///< Get IMU rotation
-    Sophus::SE3f GetImuPose();                                               ///< Get IMU pose
+    SE3f GetImuPose();                                               ///< Get IMU pose
 
     // ==================== FEATURE MANAGEMENT ====================
     
@@ -208,7 +207,7 @@ public:
 
     // ==================== POSE STATE ====================
     
-    Sophus::SE3<float> mTcw;                                    ///< Camera pose transformation
+    SE3<float> mTcw;                                    ///< Camera pose transformation
     Eigen::Matrix3f mRwc;                                       ///< World to camera rotation
     Eigen::Vector3f mOw;                                        ///< Camera center in world coordinates
     Eigen::Matrix3f mRcw;                                       ///< Camera to world rotation

@@ -31,7 +31,7 @@ Matcher::Matcher(GeometricCamera* pCam, float nnratio) : mpCamera(pCam), mfNNrat
 int Matcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, const float th)
 {
     int nmatches = 0;
-    const Sophus::SE3f Tcw = CurrentFrame.GetPose();
+    const SE3f Tcw = CurrentFrame.GetPose();
 
     for (int i = 0; i < LastFrame.N; i++)
     {
@@ -476,11 +476,11 @@ int Matcher::SearchByBoW(KeyFrame *pKF, Frame &F, vector<MapPoint *> &vpMapPoint
     return nmatches;
 }
 
-int Matcher::SearchByProjection(KeyFrame *pKF, Sophus::Sim3f &Scw, const vector<MapPoint *> &vpPoints,
+int Matcher::SearchByProjection(KeyFrame *pKF, Sim3f &Scw, const vector<MapPoint *> &vpPoints,
                                    vector<MapPoint *> &vpMatched, int th, float ratioHamming)
 {
     // Get Calibration Parameters for later projection
-    Sophus::SE3f Tcw = Sophus::SE3f(Scw.rotationMatrix(), Scw.translation() / Scw.scale());
+    SE3f Tcw = SE3f(Scw.rotationMatrix(), Scw.translation() / Scw.scale());
     Eigen::Vector3f Ow = Tcw.inverse().translation();
 
     // Set of MapPoints already found in the KeyFrame
@@ -773,16 +773,16 @@ int Matcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, vector<pair<
      * Compute epipolar geometry between keyframes
      * Epipole in KF2: projection of KF1's camera center
      */
-    Sophus::SE3f T1w = pKF1->GetPose();
-    Sophus::SE3f T2w = pKF2->GetPose();
-    Sophus::SE3f Tw2 = pKF2->GetPoseInverse();
+    SE3f T1w = pKF1->GetPose();
+    SE3f T2w = pKF2->GetPose();
+    SE3f Tw2 = pKF2->GetPoseInverse();
     Eigen::Vector3f Cw = pKF1->GetCameraCenter();
     Eigen::Vector3f C2 = T2w * Cw;
 
     Eigen::Vector2f ep = mpCamera->project(C2);
     
     // Relative transformation from KF1 to KF2
-    Sophus::SE3f T12 = T1w * Tw2;
+    SE3f T12 = T1w * Tw2;
     Eigen::Matrix3f R12 = T12.rotationMatrix();
     Eigen::Vector3f t12 = T12.translation();
 
@@ -896,7 +896,7 @@ int Matcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, vector<pair<
  */
 int Matcher::Fuse(KeyFrame *pKF, const vector<MapPoint *> &vpMapPoints, const float th)
 {
-    Sophus::SE3f Tcw = pKF->GetPose();
+    SE3f Tcw = pKF->GetPose();
     Eigen::Vector3f Ow = pKF->GetCameraCenter();
 
     int nFused = 0;
@@ -1035,10 +1035,10 @@ int Matcher::Fuse(KeyFrame *pKF, const vector<MapPoint *> &vpMapPoints, const fl
     return nFused;
 }
 
-int Matcher::Fuse(KeyFrame *pKF, Sophus::Sim3f &Scw, const vector<MapPoint *> &vpPoints, float th, vector<MapPoint *> &vpReplacePoint)
+int Matcher::Fuse(KeyFrame *pKF, Sim3f &Scw, const vector<MapPoint *> &vpPoints, float th, vector<MapPoint *> &vpReplacePoint)
 {
     // Decompose Scw
-    Sophus::SE3f Tcw = Sophus::SE3f(Scw.rotationMatrix(), Scw.translation() / Scw.scale());
+    SE3f Tcw = SE3f(Scw.rotationMatrix(), Scw.translation() / Scw.scale());
     Eigen::Vector3f Ow = Tcw.inverse().translation();
 
     // Set of MapPoints already found in the KeyFrame
@@ -1146,14 +1146,14 @@ int Matcher::Fuse(KeyFrame *pKF, Sophus::Sim3f &Scw, const vector<MapPoint *> &v
  * Uses Sim3 transformation to project map points between keyframes and find
  * additional matches. Commonly used in loop closure and place recognition.
  */
-int Matcher::SearchBySim3(KeyFrame *pKF1, KeyFrame *pKF2, std::vector<MapPoint *> &vpMatches12, const Sophus::Sim3f &S12, const float th)
+int Matcher::SearchBySim3(KeyFrame *pKF1, KeyFrame *pKF2, std::vector<MapPoint *> &vpMatches12, const Sim3f &S12, const float th)
 {
     // Camera poses from world
-    Sophus::SE3f T1w = pKF1->GetPose();
-    Sophus::SE3f T2w = pKF2->GetPose();
+    SE3f T1w = pKF1->GetPose();
+    SE3f T2w = pKF2->GetPose();
 
     // Inverse Sim3 transformation
-    Sophus::Sim3f S21 = S12.inverse();
+    Sim3f S21 = S12.inverse();
 
     const vector<MapPoint *> vpMapPoints1 = pKF1->GetMapPointMatches();
     const int N1 = vpMapPoints1.size();
@@ -1338,7 +1338,7 @@ int Matcher::SearchByProjection(Frame &CurrentFrame, KeyFrame *pKF, const set<Ma
 {
     int nmatches = 0;
 
-    const Sophus::SE3f Tcw = CurrentFrame.GetPose();
+    const SE3f Tcw = CurrentFrame.GetPose();
     Eigen::Vector3f Ow = Tcw.inverse().translation();
 
     const vector<MapPoint *> vpMPs = pKF->GetMapPointMatches();

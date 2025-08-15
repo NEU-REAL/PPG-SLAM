@@ -116,7 +116,7 @@ public:
      * @param s Scale factor
      * @param bScaledVel Scale velocities flag
      */
-    void ApplyScaledRotation(const Sophus::SE3f &T, const float s, const bool bScaledVel=false);
+    void ApplyScaledRotation(const SE3f &T, const float s, const bool bScaledVel=false);
 
     // ==================== BUNDLE ADJUSTMENT FLAGS ====================
     

@@ -9,8 +9,9 @@
 #include<mutex>
 #include<thread>
 
-Sophus::Sim3f toSophus(const g2o::Sim3& S) {
-    return Sophus::Sim3f(Sophus::RxSO3d((float)S.scale(), S.rotation().matrix()).cast<float>(), S.translation().cast<float>());
+Sim3f toSophus(const g2o::Sim3& S) {
+    SO3f rotation_so3(S.rotation().matrix().cast<float>());
+    return Sim3f(rotation_so3, S.translation().cast<float>(), (float)S.scale());
 }
 
 void MSLoopClosing::Launch( Map *pMap, const bool bActiveLC)
@@ -47,7 +48,7 @@ void MSLoopClosing::Run()
                     bool bGoodLoop = true;
                     std::cout<< "*Loop detected" <<std::endl;
                     mg2oLoopScw = mg2oLoopSlw; //*mvg2oSim3LoopTcw[nCurrentIndex];
-                    Sophus::SE3d Twc = mpCurrentKF->GetPoseInverse().cast<double>();
+                    SE3d Twc = mpCurrentKF->GetPoseInverse().cast<double>();
                     g2o::Sim3 g2oTwc(Twc.unit_quaternion(),Twc.translation(),1.0);
                     g2o::Sim3 g2oSww_new = g2oTwc*mg2oLoopScw;
                     Eigen::Matrix3d rotation_matrix = g2oSww_new.rotation().toRotationMatrix();
@@ -176,7 +177,7 @@ bool MSLoopClosing::NewDetectCommonRegions()
     {
         bCheckSpatial = true;
         // Find from the last KF candidates
-        Sophus::SE3d mTcl = (mpCurrentKF->GetPose() * mpLoopLastCurrentKF->GetPoseInverse()).cast<double>();
+        SE3d mTcl = (mpCurrentKF->GetPose() * mpLoopLastCurrentKF->GetPoseInverse()).cast<double>();
         g2o::Sim3 gScl(mTcl.unit_quaternion(),mTcl.translation(),1.0);
         g2o::Sim3 gScw = gScl * mg2oLoopSlw;
         int numProjMatches = 0;
@@ -260,7 +261,7 @@ bool MSLoopClosing::DetectAndReffineSim3FromLastKF(KeyFrame* pCurrentKF, KeyFram
 
     if(nNumProjMatches >= nProjMatches)
     {
-        Sophus::SE3d mTwm = pMatchedKF->GetPoseInverse().cast<double>();
+        SE3d mTwm = pMatchedKF->GetPoseInverse().cast<double>();
         g2o::Sim3 gSwm(mTwm.unit_quaternion(),mTwm.translation(),1.0);
         g2o::Sim3 gScm = gScw * gSwm;
         Eigen::Matrix<double, 7, 7> mHessian7x7;
@@ -453,7 +454,7 @@ bool MSLoopClosing::DetectCommonRegionsFromBoW(std::vector<KeyFrame*> &vpBowCand
                 g2o::Sim3 gScm(solver.GetEstimatedRotation().cast<double>(),solver.GetEstimatedTranslation().cast<double>(), (double) solver.GetEstimatedScale());
                 g2o::Sim3 gSmw(pMostBoWMatchesKF->GetRotation().cast<double>(),pMostBoWMatchesKF->GetTranslation().cast<double>(),1.0);
                 g2o::Sim3 gScw = gScm*gSmw; // Similarity matrix of current from the world position
-                Sophus::Sim3f mScw = toSophus(gScw);
+                Sim3f mScw = toSophus(gScw);
 
                 vector<MapPoint*> vpMatchedMP;
                 vpMatchedMP.resize(mpCurrentKF->GetMapPointMatches().size(), static_cast<MapPoint*>(NULL));
@@ -477,7 +478,7 @@ bool MSLoopClosing::DetectCommonRegionsFromBoW(std::vector<KeyFrame*> &vpBowCand
                     {
                         g2o::Sim3 gSmw(pMostBoWMatchesKF->GetRotation().cast<double>(),pMostBoWMatchesKF->GetTranslation().cast<double>(),1.0);
                         g2o::Sim3 gScw = gScm*gSmw; // Similarity matrix of current from the world position
-                        Sophus::Sim3f mScw = toSophus(gScw);
+                        Sim3f mScw = toSophus(gScw);
 
                         vector<MapPoint*> vpMatchedMP;
                         vpMatchedMP.resize(mpCurrentKF->GetMapPointMatches().size(), static_cast<MapPoint*>(NULL));
@@ -527,7 +528,7 @@ bool MSLoopClosing::DetectCommonRegionsFromBoW(std::vector<KeyFrame*> &vpBowCand
                             while(nNumKFs < 3 && j<vpCurrentCovKFs.size())
                             {
                                 KeyFrame* pKFj = vpCurrentCovKFs[j];
-                                Sophus::SE3d mTjc = (pKFj->GetPose() * mpCurrentKF->GetPoseInverse()).cast<double>();
+                                SE3d mTjc = (pKFj->GetPose() * mpCurrentKF->GetPoseInverse()).cast<double>();
                                 g2o::Sim3 gSjc(mTjc.unit_quaternion(),mTjc.translation(),1.0);
                                 g2o::Sim3 gSjw = gSjc * gScw;
                                 int numProjMatches_j = 0;
@@ -536,9 +537,9 @@ bool MSLoopClosing::DetectCommonRegionsFromBoW(std::vector<KeyFrame*> &vpBowCand
 
                                 if(bValid)
                                 {
-                                    Sophus::SE3f Tc_w = mpCurrentKF->GetPose();
-                                    Sophus::SE3f Tw_cj = pKFj->GetPoseInverse();
-                                    Sophus::SE3f Tc_cj = Tc_w * Tw_cj;
+                                    SE3f Tc_w = mpCurrentKF->GetPose();
+                                    SE3f Tw_cj = pKFj->GetPoseInverse();
+                                    SE3f Tc_cj = Tc_w * Tw_cj;
                                     Eigen::Vector3f vector_dist = Tc_cj.translation();
                                     nNumKFs++;
                                 }
@@ -658,7 +659,7 @@ int MSLoopClosing::FindMatchesByProjection(KeyFrame* pCurrentKF, KeyFrame* pMatc
         }
     }
 
-    Sophus::Sim3f mScw = toSophus(g2oScw);
+    Sim3f mScw = toSophus(g2oScw);
     Matcher matcher(mpMap->mpCamera, 0.9);
 
     vpMatchedMapPoints.resize(pCurrentKF->GetMapPointMatches().size(), static_cast<MapPoint*>(NULL));
@@ -709,13 +710,13 @@ void MSLoopClosing::CorrectLoop()
 
     KeyFrameAndPose CorrectedSim3, NonCorrectedSim3;
     CorrectedSim3[mpCurrentKF]=mg2oLoopScw;
-    Sophus::SE3f Twc = mpCurrentKF->GetPoseInverse();
-    Sophus::SE3f Tcw = mpCurrentKF->GetPose();
+    SE3f Twc = mpCurrentKF->GetPoseInverse();
+    SE3f Tcw = mpCurrentKF->GetPose();
     g2o::Sim3 g2oScw(Tcw.unit_quaternion().cast<double>(),Tcw.translation().cast<double>(),1.0);
     NonCorrectedSim3[mpCurrentKF]=g2oScw;
 
     // Update keyframe pose with corrected Sim3. First transform Sim3 to SE3 (scale translation)
-    Sophus::SE3d correctedTcw(mg2oLoopScw.rotation(),mg2oLoopScw.translation() / mg2oLoopScw.scale());
+    SE3d correctedTcw(mg2oLoopScw.rotation(),mg2oLoopScw.translation() / mg2oLoopScw.scale());
     mpCurrentKF->SetPose(correctedTcw.cast<float>());
 
     Map* pLoopMap = mpMap;
@@ -732,15 +733,15 @@ void MSLoopClosing::CorrectLoop()
 
             if(pKFi!=mpCurrentKF)
             {
-                Sophus::SE3f Tiw = pKFi->GetPose();
-                Sophus::SE3d Tic = (Tiw * Twc).cast<double>();
+                SE3f Tiw = pKFi->GetPose();
+                SE3d Tic = (Tiw * Twc).cast<double>();
                 g2o::Sim3 g2oSic(Tic.unit_quaternion(),Tic.translation(),1.0);
                 g2o::Sim3 g2oCorrectedSiw = g2oSic*mg2oLoopScw;
                 //Pose corrected with the Sim3 of the loop closure
                 CorrectedSim3[pKFi]=g2oCorrectedSiw;
 
                 // Update keyframe pose with corrected Sim3. First transform Sim3 to SE3 (scale translation)
-                Sophus::SE3d correctedTiw(g2oCorrectedSiw.rotation(),g2oCorrectedSiw.translation() / g2oCorrectedSiw.scale());
+                SE3d correctedTiw(g2oCorrectedSiw.rotation(),g2oCorrectedSiw.translation() / g2oCorrectedSiw.scale());
                 pKFi->SetPose(correctedTiw.cast<float>());
 
                 //Pose without correction
@@ -759,7 +760,7 @@ void MSLoopClosing::CorrectLoop()
             g2o::Sim3 g2oSiw =NonCorrectedSim3[pKFi];
 
             // Update keyframe pose with corrected Sim3. First transform Sim3 to SE3 (scale translation)
-            /*Sophus::SE3d correctedTiw(g2oCorrectedSiw.rotation(),g2oCorrectedSiw.translation() / g2oCorrectedSiw.scale());
+            /*SE3d correctedTiw(g2oCorrectedSiw.rotation(),g2oCorrectedSiw.translation() / g2oCorrectedSiw.scale());
             pKFi->SetPose(correctedTiw.cast<float>());*/
 
             vector<MapPoint*> vpMPsi = pKFi->GetMapPointMatches();
@@ -891,7 +892,7 @@ void MSLoopClosing::SearchAndFuse(const KeyFrameAndPose &CorrectedPosesMap, vect
         Map* pMap = mpMap;
 
         g2o::Sim3 g2oScw = mit->second;
-        Sophus::Sim3f Scw = toSophus(g2oScw);
+        Sim3f Scw = toSophus(g2oScw);
 
         vector<MapPoint*> vpReplacePoints(vpMapPoints.size(),static_cast<MapPoint*>(NULL));
         matcher.Fuse(pKFi,Scw,vpMapPoints,4,vpReplacePoints);

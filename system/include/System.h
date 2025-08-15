@@ -15,6 +15,7 @@
 #include "KannalaBrandt8.h"
 #include "Pinhole.h"
 #include "GeometricCamera.h"
+#include "SE3.h"
 #include "Map.h"
 
 class Map;
@@ -34,7 +35,7 @@ public:
     // Proccess the given monocular frame and optionally imu data
     // Input images: RGB (CV_8UC3) or grayscale (CV_8U). RGB is converted to grayscale.
     // Returns the camera pose (empty if tracking fails).
-    Sophus::SE3f TrackMonocular(const cv::Mat &im, const double &timestamp, const vector<IMU::Point>& vImuMeas = vector<IMU::Point>(), string filename="");
+    SE3f TrackMonocular(const cv::Mat &im, const double &timestamp, const vector<IMU::Point>& vImuMeas = vector<IMU::Point>(), string filename="");
 
     // This stops local mapping thread (map building) and performs only camera tracking.
     // This resumes local mapping thread and performs SLAM again.

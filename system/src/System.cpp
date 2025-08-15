@@ -25,7 +25,7 @@ System::System(const string &strVocFile, const string &strSettingsFile,const str
     int width = fsSettings["Camera.width"].operator int();
     int height = fsSettings["Camera.height"].operator int();
     float fps = fsSettings["Camera.fps"].real();
-    GeometricCamera* pCam;
+    GeometricCamera* pCam = nullptr;
     std::string cameraModel = fsSettings["Camera.type"].string();
     std::vector<float> vCalibration(8,0);
     if (cameraModel == "PinHole")
@@ -65,7 +65,7 @@ System::System(const string &strVocFile, const string &strSettingsFile,const str
     Eigen::Quaternionf q(eigenR.cast<float>());
     Eigen::Matrix<float,3,1> t;
     t <<  cvTbc.at<float>(0, 3), cvTbc.at<float>(1, 3), cvTbc.at<float>(2, 3);
-    Sophus::SE3f Tbc = Sophus::SE3<float>(q,t);
+    SE3f Tbc = SE3<float>(q,t);
     const float sf = sqrt(imuFreq);
     IMU::Calib *pImu = new IMU::Calib(Tbc, ng * sf, na * sf, wg / sf, wa / sf, imuFreq);
     
@@ -88,20 +88,20 @@ System::System(const string &strVocFile, const string &strSettingsFile,const str
 	srand(0); 
 }
 
-Sophus::SE3f System::TrackMonocular(const cv::Mat &im, const double &timestamp, const vector<IMU::Point>& vImuMeas, string filename)
+SE3f System::TrackMonocular(const cv::Mat &im, const double &timestamp, const vector<IMU::Point>& vImuMeas, string filename)
 {
 
     {
         unique_lock<mutex> lock(mMutexReset);
         if(mbShutDown)
-            return Sophus::SE3f();
+            return SE3f();
     }
     cv::Mat imToFeed = im.clone();
 
     for(size_t i_imu = 0; i_imu < vImuMeas.size(); i_imu++)
         MSTracking::get().GrabImuData(vImuMeas[i_imu]);
 
-    Sophus::SE3f Tcw = MSTracking::get().GrabImageMonocular(imToFeed,timestamp,filename);
+    SE3f Tcw = MSTracking::get().GrabImageMonocular(imToFeed,timestamp,filename);
 
     return Tcw;
 }

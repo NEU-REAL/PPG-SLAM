@@ -1,4 +1,4 @@
-add_library(Map
+add_library(Map SHARED
     src/Map.cpp
     src/Frame.cpp
 )
