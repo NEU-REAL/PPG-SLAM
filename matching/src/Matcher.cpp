@@ -16,13 +16,22 @@ Matcher::Matcher(GeometricCamera* pCam, float nnratio) : mpCamera(pCam), mfNNrat
 {
 }
 
+/**
+ * @brief Search matches by projecting map points from last frame to current frame
+ * @param CurrentFrame Current frame for matching
+ * @param LastFrame Previous frame with tracked points
+ * @param th Search radius threshold
+ * @return Number of successful matches
+ * 
+ * This function tracks map points from the previous frame by:
+ * 1. Projecting each map point from last frame to current frame
+ * 2. Searching for best descriptor match within radius
+ * 3. Applying nearest neighbor ratio test
+ */
 int Matcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, const float th)
 {
     int nmatches = 0;
-
     const Sophus::SE3f Tcw = CurrentFrame.GetPose();
-    const Eigen::Vector3f twc = Tcw.inverse().translation();
-    const Sophus::SE3f Tlw = LastFrame.GetPose();
 
     for (int i = 0; i < LastFrame.N; i++)
     {
@@ -31,11 +40,12 @@ int Matcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, con
         {
             if (!LastFrame.mvbOutlier[i])
             {
-                // Project
+                // Project map point to current frame
                 Eigen::Vector3f x3Dw = pMP->GetWorldPos();
                 Eigen::Vector3f x3Dc = Tcw * x3Dw;
                 const float invzc = 1.0 / x3Dc(2);
 
+                // Check if point is in front of camera
                 if (invzc < 0)
                     continue;
 
@@ -107,7 +117,12 @@ int Matcher::SearchByProjection(Frame &F, const vector<MapPoint *> &vpMapPoints,
 
         if (pMP->mbTrackInView)
         {
-            // The size of the window will depend on the viewing direction
+            /**
+             * Adaptive search radius based on viewing angle
+             * - Smaller radius (2.5) for frontal view (cos > 0.998, ~3.6°)
+             * - Larger radius (4.0) for oblique views
+             * - Further scaled by threshold factor if provided
+             */
             float r(4.0f);
             
             if (pMP->mTrackViewCos > 0.998)
@@ -116,6 +131,7 @@ int Matcher::SearchByProjection(Frame &F, const vector<MapPoint *> &vpMapPoints,
             if (bFactor)
                 r *= th;
 
+            // Get candidate features within adaptive search area
             const vector<size_t> vIndices = F.GetFeaturesInArea(pMP->mTrackProjX, pMP->mTrackProjY, r);
 
             if (!vIndices.empty())
@@ -126,19 +142,23 @@ int Matcher::SearchByProjection(Frame &F, const vector<MapPoint *> &vpMapPoints,
                 float bestDist2 = 1e6;
                 int bestIdx = -1;
 
-                // Get best and second matches with near keypoints
+                /**
+                 * Descriptor matching with ratio test
+                 * Find best and second-best matches for robust matching
+                 */
                 for (vector<size_t>::const_iterator vit = vIndices.begin(), vend = vIndices.end(); vit != vend; vit++)
                 {
                     const size_t idx = *vit;
 
+                    // Skip features already matched to observed map points
                     if (F.mvpMapPoints[idx])
                         if (F.mvpMapPoints[idx]->Observations() > 0)
                             continue;
 
                     const cv::Mat &d = F.mDescriptors.row(idx);
-
                     const float dist = DescriptorDistance(MPdescriptor, d);
 
+                    // Update best and second-best distances
                     if (dist < bestDist)
                     {
                         bestDist2 = bestDist;
@@ -149,7 +169,11 @@ int Matcher::SearchByProjection(Frame &F, const vector<MapPoint *> &vpMapPoints,
                         bestDist2 = dist;
                 }
 
-                // Apply ratio to second match (only if best and second are in the same scale level)
+                /**
+                 * Accept match if:
+                 * 1. Distance is below threshold (TH_HIGH)
+                 * 2. Passes ratio test (best << second best)
+                 */
                 if (bestDist <= TH_HIGH)
                 {
                     if (bestDist > mfNNratio * bestDist2)
@@ -166,51 +190,75 @@ int Matcher::SearchByProjection(Frame &F, const vector<MapPoint *> &vpMapPoints,
 
 
 
+/**
+ * @brief Extend map point matches for frame with priority-based matching
+ * @param F Frame to match map points with
+ * @param vpMapPoints Vector of candidate map points
+ * @param th Search radius scaling factor
+ * @return Number of successful matches
+ * 
+ * This function extends map point matches by prioritizing map points
+ * with more connections (edges) in the covisibility graph.
+ */
 int Matcher::ExtendMapMatches(Frame &F, const vector<MapPoint *> &vpMapPoints, const float th)
 {
     int nmatches = 0;
     std::vector<MapPoint*> candidateMapPoints;
     candidateMapPoints.reserve(vpMapPoints.size());
 
-    for (MapPoint *pMP  : vpMapPoints)
+    // Filter valid trackable map points
+    for (MapPoint *pMP : vpMapPoints)
     {
-        if (pMP->isBad())
-            continue;
-        if (!pMP->mbTrackInView)
+        if (pMP->isBad() || !pMP->mbTrackInView)
             continue;
         candidateMapPoints.push_back(pMP);
     }
 
+    /**
+     * Sort map points by covisibility connections (edges)
+     * Prioritize well-connected map points for better matching stability
+     */
     std::sort(candidateMapPoints.begin(), candidateMapPoints.end(), 
         [](MapPoint *a, MapPoint *b) {return a->getEdges().size() > b->getEdges().size();});
 
-    for (MapPoint *pMP  : candidateMapPoints)
+    for (MapPoint *pMP : candidateMapPoints)
     {
-        if(pMP->mnTrackedbyFrame == F.mnId)
-            continue; // already matched in this frame
-        if(pMP->isBad())
+        // Skip if already matched in this frame
+        if (pMP->mnTrackedbyFrame == F.mnId || pMP->isBad())
             continue;
 
         const cv::Mat MPdescriptor = pMP->GetDescriptor();
         float bestDist = 1e6;
         float bestDist2 = 1e6;
         int bestIdx = -1;
-        // Get best and second matches with near keypoints
+        
+        /**
+         * Adaptive search radius based on viewing angle
+         * - Smaller radius for frontal view (better localization)
+         * - Larger radius for oblique view (increased search area)
+         */
         float r = th;
         if (pMP->mTrackViewCos > 0.998)
             r *= 2.5;
         else
             r *= 4.0;
+            
         const vector<size_t> vIndices = F.GetFeaturesInArea(pMP->mTrackProjX, pMP->mTrackProjY, r);
         if (vIndices.empty()) 
             continue;
+            
+        // Find best matching feature using descriptor distance
         for (vector<size_t>::const_iterator vit = vIndices.begin(), vend = vIndices.end(); vit != vend; vit++)
         {
             const size_t idx = *vit;
+            
+            // Skip features already matched to observed map points
             if (F.mvpMapPoints[idx] && F.mvpMapPoints[idx]->Observations() > 0)
                 continue;
+                
             const cv::Mat &d = F.mDescriptors.row(idx);
             const float dist = DescriptorDistance(MPdescriptor, d);
+            
             if (dist < bestDist)
             {
                 bestDist2 = bestDist;
@@ -220,34 +268,56 @@ int Matcher::ExtendMapMatches(Frame &F, const vector<MapPoint *> &vpMapPoints, c
             else if (dist < bestDist2)
                 bestDist2 = dist;
         }
+        
+        /**
+         * Accept match if distance is reasonable
+         * Note: This uses OR logic instead of AND for threshold and ratio test
+         */
         if (bestDist > TH_HIGH && bestDist > mfNNratio * bestDist2)
             continue;
+            
         F.mvpMapPoints[bestIdx] = pMP;
         pMP->mnTrackedbyFrame = F.mnId;
+        nmatches++;
  
-        // seed growing
+        /**
+         * Seed growing algorithm for graph-based matching
+         * Propagate matches through PPG (Point-Pair Graph) connections
+         */
         std::deque<unsigned int> matchSeed;
         matchSeed.push_back(bestIdx);
+        
         while (matchSeed.size() > 0)
         {
             unsigned int keyID = matchSeed.front();
             matchSeed.pop_front();
+            
+            // Get connected edges from map point and keypoint
             std::vector<MapEdge*> mapEdge_set = pMP->getEdges();
             const std::vector<unsigned int> &keyEdge_set = F.mvKeysUn[keyID].mvConnected;
-            if(mapEdge_set.empty() || keyEdge_set.empty())
+            
+            if (mapEdge_set.empty() || keyEdge_set.empty())
                 continue;
 
+            /**
+             * Create weight matrix for edge matching
+             * Each cell represents compatibility between map edge and key edge
+             */
             Eigen::MatrixXf weight(mapEdge_set.size(), keyEdge_set.size());
             weight.setConstant(1e6);
-            std::vector<unsigned int> lx;
-            std::vector<unsigned int> ly;
-            for(unsigned int i=0;i< mapEdge_set.size(); i++)
+            std::vector<unsigned int> lx, ly;
+            
+            // Filter valid map edges
+            for (unsigned int i = 0; i < mapEdge_set.size(); i++)
             {
-                if(mapEdge_set[i]->isBad() || !mapEdge_set[i]->mbValid || mapEdge_set[i]->theOtherPt(pMP) == nullptr)
+                if (mapEdge_set[i]->isBad() || !mapEdge_set[i]->mbValid || 
+                    mapEdge_set[i]->theOtherPt(pMP) == nullptr)
                     continue;
                 lx.push_back(i);
             }
-            for (unsigned int j=0; j<keyEdge_set.size(); j++)
+            
+            // Add all key edges
+            for (unsigned int j = 0; j < keyEdge_set.size(); j++)
                 ly.push_back(j);
 
             for(unsigned int i : lx)
@@ -310,17 +380,28 @@ int Matcher::ExtendMapMatches(Frame &F, const vector<MapPoint *> &vpMapPoints, c
     return nmatches;
 }
 
+/**
+ * @brief Search for map point matches between keyframe and frame using Bag of Words
+ * @param pKF Reference keyframe
+ * @param F Current frame
+ * @param vpMapPointMatches Output vector of matched map points for frame features
+ * @return Number of successful matches
+ * 
+ * Uses vocabulary tree structure to accelerate feature matching by only comparing
+ * features that belong to the same vocabulary node, significantly reducing complexity.
+ */
 int Matcher::SearchByBoW(KeyFrame *pKF, Frame &F, vector<MapPoint *> &vpMapPointMatches)
 {
     const vector<MapPoint *> vpMapPointsKF = pKF->GetMapPointMatches();
-
     vpMapPointMatches = vector<MapPoint *>(F.N, static_cast<MapPoint *>(NULL));
 
     const DBoW3::FeatureVector &vFeatVecKF = pKF->mFeatVec;
-
     int nmatches = 0;
 
-    // We perform the matching over vocabulary that belong to the same vocabulary node (at a certain level)
+    /**
+     * Parallel iteration through vocabulary nodes
+     * Only compare features from the same vocabulary node for efficiency
+     */
     DBoW3::FeatureVector::const_iterator KFit = vFeatVecKF.begin();
     DBoW3::FeatureVector::const_iterator Fit = F.mFeatVec.begin();
     DBoW3::FeatureVector::const_iterator KFend = vFeatVecKF.end();
@@ -330,13 +411,13 @@ int Matcher::SearchByBoW(KeyFrame *pKF, Frame &F, vector<MapPoint *> &vpMapPoint
     {
         if (KFit->first == Fit->first)
         {
+            // Features from same vocabulary node - perform matching
             const vector<unsigned int> vIndicesKF = KFit->second;
             const vector<unsigned int> vIndicesF = Fit->second;
 
             for (size_t iKF = 0; iKF < vIndicesKF.size(); iKF++)
             {
                 const unsigned int realIdxKF = vIndicesKF[iKF];
-
                 MapPoint *pMP = vpMapPointsKF[realIdxKF];
 
                 if (!pMP)
@@ -375,7 +456,6 @@ int Matcher::SearchByBoW(KeyFrame *pKF, Frame &F, vector<MapPoint *> &vpMapPoint
                     if (static_cast<float>(bestDist1) < mfNNratio * static_cast<float>(bestDist2))
                     {
                         vpMapPointMatches[bestIdxF] = pMP;
-                        const KeyPointEx &kp = pKF->mvKeysUn[realIdxKF];
                         nmatches++;
                     }
                 }
@@ -487,36 +567,50 @@ int Matcher::SearchByProjection(KeyFrame *pKF, Sophus::Sim3f &Scw, const vector<
     return nmatches;
 }
 
+/**
+ * @brief Search for feature matches between two frames for initialization
+ * @param F1 First frame (reference)
+ * @param F2 Second frame (current)
+ * @param vbPrevMatched Previous matched points from F1 (for search area centering)
+ * @param vnMatches12 Output: vnMatches12[i] = matched feature index in F2 for F1's i-th feature
+ * @param windowSize Search window size around previous matches
+ * @return Number of successful matches
+ * 
+ * Performs bidirectional matching with mutual consistency check for robust initialization.
+ * Uses previous match locations to guide search areas for efficiency.
+ */
 int Matcher::SearchForInitialization(Frame &F1, Frame &F2, vector<cv::Point2f> &vbPrevMatched, vector<int> &vnMatches12, int windowSize)
 {
     int nmatches = 0;
     vnMatches12 = vector<int>(F1.mvKeysUn.size(), -1);
 
+    // Track best distances and reverse matches for consistency check
     vector<int> vMatchedDistance(F2.mvKeysUn.size(), INT_MAX);
     vector<int> vnMatches21(F2.mvKeysUn.size(), -1);
 
     for (size_t i1 = 0, iend1 = F1.mvKeysUn.size(); i1 < iend1; i1++)
     {
         KeyPointEx kp1 = F1.mvKeysUn[i1];
+        
+        // Search in area around previous match location
         vector<size_t> vIndices2 = F2.GetFeaturesInArea(vbPrevMatched[i1].x, vbPrevMatched[i1].y, windowSize);
 
         if (vIndices2.empty())
             continue;
 
         cv::Mat d1 = F1.mDescriptors.row(i1);
-
         float bestDist = 1e6;
         float bestDist2 = 1e6;
         int bestIdx2 = -1;
 
+        // Find best matching feature in F2
         for (vector<size_t>::iterator vit = vIndices2.begin(); vit != vIndices2.end(); vit++)
         {
             size_t i2 = *vit;
-
             cv::Mat d2 = F2.mDescriptors.row(i2);
-
             float dist = DescriptorDistance(d1, d2);
 
+            // Skip if this F2 feature already has a better match
             if (vMatchedDistance[i2] <= dist)
                 continue;
 
@@ -556,6 +650,16 @@ int Matcher::SearchForInitialization(Frame &F1, Frame &F2, vector<cv::Point2f> &
     return nmatches;
 }
 
+/**
+ * @brief Search for matches between two keyframes using Bag of Words
+ * @param pKF1 First keyframe 
+ * @param pKF2 Second keyframe
+ * @param vpMatches12 Output vector: vpMatches12[i] = matched map point from KF2 for KF1's i-th map point
+ * @return Number of successful matches
+ * 
+ * Performs bidirectional matching between two keyframes using vocabulary structure
+ * for efficiency. Ensures consistent matches by checking both directions.
+ */
 int Matcher::SearchByBoW(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &vpMatches12)
 {
     const DBoW3::FeatureVector &vFeatVec1 = pKF1->mFeatVec;
@@ -649,35 +753,48 @@ int Matcher::SearchByBoW(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &vpM
     return nmatches;
 }
 
+/**
+ * @brief Search for feature matches between keyframes for triangulation
+ * @param pKF1 First keyframe
+ * @param pKF2 Second keyframe  
+ * @param vMatchedPairs Output vector of matched feature index pairs
+ * @param bCoarse Whether to use coarse matching (less restrictive epipolar constraints)
+ * @return Number of successful matches
+ * 
+ * Finds untracked feature matches between keyframes for new map point triangulation.
+ * Uses epipolar geometry constraints and vocabulary structure for efficiency.
+ */
 int Matcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, vector<pair<size_t, size_t>> &vMatchedPairs, const bool bCoarse)
 {
     const DBoW3::FeatureVector &vFeatVec1 = pKF1->mFeatVec;
     const DBoW3::FeatureVector &vFeatVec2 = pKF2->mFeatVec;
 
-    // Compute epipole in second image
+    /**
+     * Compute epipolar geometry between keyframes
+     * Epipole in KF2: projection of KF1's camera center
+     */
     Sophus::SE3f T1w = pKF1->GetPose();
     Sophus::SE3f T2w = pKF2->GetPose();
-    Sophus::SE3f Tw2 = pKF2->GetPoseInverse(); // for convenience
+    Sophus::SE3f Tw2 = pKF2->GetPoseInverse();
     Eigen::Vector3f Cw = pKF1->GetCameraCenter();
     Eigen::Vector3f C2 = T2w * Cw;
 
     Eigen::Vector2f ep = mpCamera->project(C2);
-    Sophus::SE3f T12;
-    Sophus::SE3f Tll, Tlr, Trl, Trr;
-    Eigen::Matrix3f R12; // for fastest computation
-    Eigen::Vector3f t12; // for fastest computation
+    
+    // Relative transformation from KF1 to KF2
+    Sophus::SE3f T12 = T1w * Tw2;
+    Eigen::Matrix3f R12 = T12.rotationMatrix();
+    Eigen::Vector3f t12 = T12.translation();
 
-    T12 = T1w * Tw2;
-    R12 = T12.rotationMatrix();
-    t12 = T12.translation();
-
-    // Find matches between not tracked keypoints
-    // Matching speed-up by Vocabulary
-    // Compare only Vocabulary that share the same node
+    /**
+     * Find matches between untracked keypoints
+     * Use vocabulary structure for computational efficiency
+     */
     int nmatches = 0;
     vector<bool> vbMatched2(pKF2->N, false);
     vector<int> vMatches12(pKF1->N, -1);
 
+    // Parallel iteration through vocabulary nodes
     DBoW3::FeatureVector::const_iterator f1it = vFeatVec1.begin();
     DBoW3::FeatureVector::const_iterator f2it = vFeatVec2.begin();
     DBoW3::FeatureVector::const_iterator f1end = vFeatVec1.end();
@@ -767,23 +884,33 @@ int Matcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, vector<pair<
     return nmatches;
 }
 
+/**
+ * @brief Fuse map points with keyframe features
+ * @param pKF Target keyframe for fusion
+ * @param vpMapPoints Candidate map points to fuse
+ * @param th Search radius threshold
+ * @return Number of successful fusions
+ * 
+ * Projects map points into keyframe and fuses with existing features.
+ * Replaces weaker matches and creates new associations.
+ */
 int Matcher::Fuse(KeyFrame *pKF, const vector<MapPoint *> &vpMapPoints, const float th)
 {
-    Sophus::SE3f Tcw;
-    Eigen::Vector3f Ow;
-
-    Tcw = pKF->GetPose();
-    Ow = pKF->GetCameraCenter();
+    Sophus::SE3f Tcw = pKF->GetPose();
+    Eigen::Vector3f Ow = pKF->GetCameraCenter();
 
     int nFused = 0;
     const int nMPs = vpMapPoints.size();
 
-    // For debbuging
-    int count_notMP = 0, count_bad = 0, count_isinKF = 0, count_negdepth = 0, count_notinim = 0, count_dist = 0, count_normal = 0, count_notidx = 0, count_thcheck = 0;
+    // Debug counters for fusion analysis
+    int count_notMP = 0, count_bad = 0, count_isinKF = 0, count_negdepth = 0, 
+        count_notinim = 0, count_dist = 0, count_normal = 0, count_notidx = 0, count_thcheck = 0;
+        
     for (int i = 0; i < nMPs; i++)
     {
         MapPoint *pMP = vpMapPoints[i];
 
+        // Skip invalid map points
         if (!pMP)
         {
             count_notMP++;
@@ -810,8 +937,6 @@ int Matcher::Fuse(KeyFrame *pKF, const vector<MapPoint *> &vpMapPoints, const fl
             count_negdepth++;
             continue;
         }
-
-        const float invz = 1 / p3Dc(2);
 
         const Eigen::Vector2f uv = mpCamera->project(p3Dc);
 
@@ -1009,13 +1134,25 @@ int Matcher::Fuse(KeyFrame *pKF, Sophus::Sim3f &Scw, const vector<MapPoint *> &v
     return nFused;
 }
 
+/**
+ * @brief Search for matches between keyframes using Sim3 transformation
+ * @param pKF1 First keyframe
+ * @param pKF2 Second keyframe  
+ * @param vpMatches12 Input/output: existing and new matches from KF1 to KF2
+ * @param S12 Sim3 transformation from KF1 to KF2
+ * @param th Search radius threshold
+ * @return Number of new matches found
+ * 
+ * Uses Sim3 transformation to project map points between keyframes and find
+ * additional matches. Commonly used in loop closure and place recognition.
+ */
 int Matcher::SearchBySim3(KeyFrame *pKF1, KeyFrame *pKF2, std::vector<MapPoint *> &vpMatches12, const Sophus::Sim3f &S12, const float th)
 {
-    // Camera 1 & 2 from world
+    // Camera poses from world
     Sophus::SE3f T1w = pKF1->GetPose();
     Sophus::SE3f T2w = pKF2->GetPose();
 
-    // Transformation between cameras
+    // Inverse Sim3 transformation
     Sophus::Sim3f S21 = S12.inverse();
 
     const vector<MapPoint *> vpMapPoints1 = pKF1->GetMapPointMatches();
@@ -1024,6 +1161,10 @@ int Matcher::SearchBySim3(KeyFrame *pKF1, KeyFrame *pKF2, std::vector<MapPoint *
     const vector<MapPoint *> vpMapPoints2 = pKF2->GetMapPointMatches();
     const int N2 = vpMapPoints2.size();
 
+    /**
+     * Mark already matched features to avoid duplicates
+     * Track existing matches in both directions
+     */
     vector<bool> vbAlreadyMatched1(N1, false);
     vector<bool> vbAlreadyMatched2(N2, false);
 
@@ -1042,7 +1183,11 @@ int Matcher::SearchBySim3(KeyFrame *pKF1, KeyFrame *pKF2, std::vector<MapPoint *
     vector<int> vnMatch1(N1, -1);
     vector<int> vnMatch2(N2, -1);
 
-    // Transform from KF1 to KF2 and search
+    /**
+     * Bidirectional matching using Sim3 transformation
+     * 1. Transform KF1 map points to KF2 coordinate system
+     * 2. Transform KF2 map points to KF1 coordinate system  
+     */
     for (int i1 = 0; i1 < N1; i1++)
     {
         MapPoint *pMP = vpMapPoints1[i1];

@@ -1,3 +1,10 @@
+/**
+ * @file Sim3Solver.cpp
+ * @brief Implementation of Similarity transformation solver for loop closure
+ * @author PPG-SLAM Team  
+ * @date 2025
+ */
+
 #include <cstdlib>
 #include <vector>
 #include <cmath>
@@ -10,11 +17,29 @@
 #include "KannalaBrandt8.h"
 #include "Pinhole.h"
 
-Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, GeometricCamera* pCam, const std::vector<MapPoint *> &vpMatched12, const bool bFixScale,
-                       std::vector<KeyFrame*> vpKeyFrameMatchedMP): mnIterations(0), mnBestInliers(0), mbFixScale(bFixScale), mpCamera(pCam)
+/**
+ * @brief Constructor - Initialize Sim3 solver with keyframe correspondences
+ * @param pKF1 First keyframe (reference)
+ * @param pKF2 Second keyframe (target)
+ * @param pCam Camera model for reprojection
+ * @param vpMatched12 Matched map points from KF1 to KF2
+ * @param bFixScale Whether to fix scale to 1 (stereo/RGB-D case)
+ * @param vpKeyFrameMatchedMP Optional keyframes observing matched points
+ * 
+ * Extracts 3D-3D correspondences and transforms them to camera coordinates
+ * for Sim3 computation. Handles both fixed-scale and free-scale scenarios.
+ */
+Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, GeometricCamera* pCam, 
+                       const std::vector<MapPoint *> &vpMatched12, const bool bFixScale,
+                       std::vector<KeyFrame*> vpKeyFrameMatchedMP)
+    : mnIterations(0), mnBestInliers(0), mbFixScale(bFixScale), mpCamera(pCam)
 {
+    /**
+     * Handle keyframe association for matched points
+     * Default to pKF2 if no specific keyframes provided
+     */
     bool bDifferentKFs = false;
-    if(vpKeyFrameMatchedMP.empty())
+    if (vpKeyFrameMatchedMP.empty())
     {
         bDifferentKFs = true;
         vpKeyFrameMatchedMP = std::vector<KeyFrame*>(vpMatched12.size(), pKF2);
@@ -24,9 +49,9 @@ Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, GeometricCamera* pCam, co
     mpKF2 = pKF2;
 
     std::vector<MapPoint*> vpKeyFrameMP1 = pKF1->GetMapPointMatches();
-
     mN1 = vpMatched12.size();
 
+    // Reserve memory for correspondence data
     mvpMapPoints1.reserve(mN1);
     mvpMapPoints2.reserve(mN1);
     mvpMatches12 = vpMatched12;
@@ -34,19 +59,23 @@ Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, GeometricCamera* pCam, co
     mvX3Dc1.reserve(mN1);
     mvX3Dc2.reserve(mN1);
 
+    // Get camera poses for coordinate transformation
     Eigen::Matrix3f Rcw1 = pKF1->GetRotation();
     Eigen::Vector3f tcw1 = pKF1->GetTranslation();
     Eigen::Matrix3f Rcw2 = pKF2->GetRotation();
     Eigen::Vector3f tcw2 = pKF2->GetTranslation();
 
     mvAllIndices.reserve(mN1);
+    size_t idx = 0;
+    KeyFrame* pKFm = pKF2; // Default keyframe for matched points
 
-    size_t idx=0;
-
-    KeyFrame* pKFm = pKF2; //Default variable
-    for(int i1=0; i1<mN1; i1++)
+    /**
+     * Extract valid 3D-3D correspondences
+     * Transform world coordinates to camera coordinates for both keyframes
+     */
+    for (int i1 = 0; i1 < mN1; i1++)
     {
-        if(vpMatched12[i1])
+        if (vpMatched12[i1])
         {
             MapPoint* pMP1 = vpKeyFrameMP1[i1];
             MapPoint* pMP2 = vpMatched12[i1];
