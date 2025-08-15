@@ -1,10 +1,6 @@
 /**
  * @file KeyFrame.h
  * @brief KeyFrame class representing key frames in PPG-SLAM system
- * @details This class represents a key frame in the SLAM system, containing camera pose,
- *          IMU data, keypoints, descriptors, map point observations, and covisibility graph connections.
- *          Key frames are crucial nodes in the SLAM graph that maintain the map structure and
- *          enable loop closure detection and optimization.
  */
 
 #pragma once
@@ -36,15 +32,7 @@ class MapEdge;
 
 /**
  * @class KeyFrame
- * @brief Represents a key frame in the SLAM system
- * @details A KeyFrame is a selected frame that serves as a reference point in the SLAM system.
- *          It stores the camera pose, IMU measurements, extracted features, map point observations,
- *          and maintains connections with other key frames through the covisibility graph.
- *          Key frames are essential for:
- *          - Maintaining the sparse map representation
- *          - Enabling loop closure detection
- *          - Providing constraints for bundle adjustment
- *          - Supporting place recognition and relocalization
+ * @brief Key frame in the SLAM system with pose, features, and covisibility connections
  */
 class KeyFrame
 {
@@ -60,55 +48,41 @@ public:
 
     // ==================== POSE MANAGEMENT ====================
     
-    /**
-     * @brief Pose setter functions
-     */
-    void SetPose(const Sophus::SE3f &Tcw);          ///< Set camera pose (world to camera transformation)
-    void SetVelocity(const Eigen::Vector3f &Vw_);   ///< Set camera velocity in world coordinates
+    /// Pose setter functions
+    void SetPose(const Sophus::SE3f &Tcw);          ///< Set camera pose
+    void SetVelocity(const Eigen::Vector3f &Vw_);   ///< Set camera velocity
 
-    /**
-     * @brief Camera pose getter functions
-     */
-    Sophus::SE3f GetPose();                         ///< Get camera pose (world to camera)
-    Sophus::SE3f GetPoseInverse();                  ///< Get inverse camera pose (camera to world)
-    Eigen::Vector3f GetCameraCenter();              ///< Get camera center position in world coordinates
-    Eigen::Matrix3f GetRotation();                  ///< Get camera rotation matrix (world to camera)
-    Eigen::Vector3f GetTranslation();               ///< Get camera translation vector (world to camera)
+    /// Camera pose getter functions
+    Sophus::SE3f GetPose();                         ///< Get camera pose
+    Sophus::SE3f GetPoseInverse();                  ///< Get inverse camera pose
+    Eigen::Vector3f GetCameraCenter();              ///< Get camera center position
+    Eigen::Matrix3f GetRotation();                  ///< Get camera rotation matrix
+    Eigen::Vector3f GetTranslation();               ///< Get camera translation vector
 
-    /**
-     * @brief IMU pose getter functions
-     */
-    Eigen::Vector3f GetImuPosition();               ///< Get IMU position in world coordinates
+    /// IMU pose getter functions
+    Eigen::Vector3f GetImuPosition();               ///< Get IMU position
     Eigen::Matrix3f GetImuRotation();               ///< Get IMU rotation matrix
     Sophus::SE3f GetImuPose();                      ///< Get IMU pose transformation
 
-    /**
-     * @brief Velocity management functions
-     */
-    Eigen::Vector3f GetVelocity();                  ///< Get camera velocity in world coordinates
+    /// Velocity management functions
+    Eigen::Vector3f GetVelocity();                  ///< Get camera velocity
     bool isVelocitySet();                           ///< Check if velocity has been set
 
     // ==================== COVISIBILITY GRAPH ====================
     
-    /**
-     * @brief Connection management functions
-     */
+    /// Connection management functions
     void AddConnection(KeyFrame* pKF, const int &weight);       ///< Add covisibility connection
     void EraseConnection(KeyFrame* pKF);                        ///< Remove connection to keyframe
     void UpdateConnections(bool upParent=true);                 ///< Update connections based on shared map points
     void UpdateBestCovisibles();                                ///< Update best covisible keyframes list
 
-    /**
-     * @brief Covisible keyframe getter functions
-     */
+    /// Covisible keyframe getter functions
     std::set<KeyFrame *> GetConnectedKeyFrames();               ///< Get all connected keyframes
     std::vector<KeyFrame* > GetVectorCovisibleKeyFrames();      ///< Get covisible keyframes as vector
     std::vector<KeyFrame*> GetBestCovisibilityKeyFrames(const int &N);     ///< Get N best covisible keyframes
     std::vector<KeyFrame*> GetCovisiblesByWeight(const int &w); ///< Get keyframes with weight >= threshold
 
-    /**
-     * @brief Covisibility weight functions
-     */
+    /// Covisibility weight functions
     int GetWeight(KeyFrame* pKF);                               ///< Get connection weight with keyframe
 
     // ==================== LOOP CLOSURE ====================
@@ -119,69 +93,47 @@ public:
     void AddLoopEdge(KeyFrame* pKF);                ///< Add loop edge connection
     std::set<KeyFrame*> GetLoopEdges();             ///< Get all loop edge connections
 
-    // ==================== MAP POINT MANAGEMENT ====================
+        // ==================== MAP POINT OPERATIONS ====================
     
-    /**
-     * @brief Map point association functions
-     */
+    /// Map point association functions
     void AddMapPoint(MapPoint* pMP, const size_t &idx);         ///< Associate map point with keypoint
     void ReplaceMapPointMatch(const int &idx, MapPoint* pMP);   ///< Replace map point at keypoint index
 
-    /**
-     * @brief Map point removal functions
-     */
+    /// Map point removal functions
     void EraseMapPointMatch(const int &idx);        ///< Remove map point association at index
     void EraseMapPointMatch(MapPoint* pMP);         ///< Remove all associations with map point
 
-    /**
-     * @brief Map point getter functions
-     */
+    /// Map point getter functions
     std::set<MapPoint*> GetMapPoints();             ///< Get all associated map points
     std::vector<MapPoint*> GetMapPointMatches();    ///< Get map points as vector (with nullptrs)
     MapPoint* GetMapPoint(const size_t &idx);       ///< Get map point at keypoint index
 
-    /**
-     * @brief Map point statistics functions
-     */
+    /// Map point statistics functions
     int TrackedMapPoints(const int &minObs);        ///< Count tracked map points with min observations
 
-    // ==================== FEATURE MANAGEMENT ====================
+    // ==================== FEATURE AND LIFECYCLE MANAGEMENT ====================
     
-    /**
-     * @brief Feature search and query functions
-     */
+    /// Feature search functions
     std::vector<size_t> GetFeaturesInArea(const float &x, const float  &y, const float  &r) const;  ///< Get keypoint indices within circular area
 
-    // ==================== BAD FLAG MANAGEMENT ====================
-    
-    /**
-     * @brief Keyframe lifecycle management functions
-     */
+    /// Keyframe lifecycle functions
     void SetNotErase();                             ///< Prevent keyframe from being erased
     void SetErase();                                ///< Allow keyframe to be erased
     void SetBadFlag();                              ///< Mark keyframe as bad
     bool isBad();                                   ///< Check if keyframe is marked as bad
 
-    // ==================== IMU BIAS MANAGEMENT ====================
+    // ==================== IMU AND EDGE MANAGEMENT ====================
     
-    /**
-     * @brief IMU bias setter/getter functions
-     */
+    /// IMU bias functions
     void SetNewBias(const IMU::Bias &b);            ///< Set new IMU bias values
     Eigen::Vector3f GetGyroBias();                  ///< Get gyroscope bias
     Eigen::Vector3f GetAccBias();                   ///< Get accelerometer bias  
     IMU::Bias GetImuBias();                         ///< Get complete IMU bias
 
-    // ==================== GRAPH EDGE MANAGEMENT ====================
-    
-    /**
-     * @brief Map edge management functions
-     */
+    /// Map edge functions
     void AddMapEdge(MapEdge* pME, const size_t &idx);           ///< Add map edge association
     MapEdge* GetMapEdge(int idx);                               ///< Get map edge at index
     int FineEdgeIdx(unsigned int p1_id, unsigned int p2_id);    ///< Find edge index by point IDs
-    // ==================== PUBLIC MEMBER VARIABLES ====================
-    // Note: The following variables are accessed from only 1 thread or never change (no mutex needed)
 
     // ==================== IDENTIFICATION ====================
     static long unsigned int nNextId;  ///< Global counter for generating unique key frame IDs
@@ -245,8 +197,6 @@ public:
     IMU::Calib *mpImuCalib;           ///< Pointer to IMU calibration parameters
     bool bImu;                        ///< Flag indicating if IMU data is available
 
-    // ==================== THREAD-SAFE VARIABLES ====================
-    // Note: The following variables need to be accessed through a mutex to be thread safe
 public:
     // ==================== POSE AND TRANSFORMATION ====================
     Sophus::SE3<float> mTcw;           ///< Camera pose: transformation from world to camera coordinates

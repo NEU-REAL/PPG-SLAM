@@ -1,27 +1,35 @@
 
+/**
+ * @file KeyFrame.cpp
+ * @brief Implementation of KeyFrame class for PPG-SLAM system
+ */
+
 #include "KeyFrame.h"
 #include "IMU.h"
+
+// ==================== SYSTEM INCLUDES ====================
 #include <mutex>
 #include <algorithm>
 #include <list>
 #include <iostream>
 
-long unsigned int KeyFrame::nNextId=0;
+// ==================== STATIC MEMBER DEFINITIONS ====================
+long unsigned int KeyFrame::nNextId = 0;
+
+// ==================== CONSTRUCTORS ====================
 
 KeyFrame::KeyFrame():
-        mnFrameId(0),  mTimeStamp(0),
-        mnTrackReferenceForFrame(0), mnFuseTargetForKF(0), mnBALocalForKF(0), mnBAFixedForKF(0), 
-        mnRelocQuery(0), mnRelocWords(0), mnBAGlobalForKF(0),
-        mnPlaceRecognitionQuery(0), mnPlaceRecognitionWords(0), mPlaceRecognitionScore(0),
-        N(0), mvKeys(std::vector<KeyPointEx>()), mvKeysUn(std::vector<KeyPointEx>()),
-        mvKeyEdges(std::vector<KeyEdge>()), mPrevKF(nullptr), mNextKF(nullptr), mbNotErase(false),
-        mbToBeErased(false), mbBad(false), 
-        mnNumberOfOpt(0), mbHasVelocity(false) 
+    mnFrameId(0), mTimeStamp(0), mnTrackReferenceForFrame(0), mnFuseTargetForKF(0), mnBALocalForKF(0), mnBAFixedForKF(0), mnNumberOfOpt(0), 
+    mnRelocQuery(0), mnRelocWords(0), mnPlaceRecognitionQuery(0), mnPlaceRecognitionWords(0), mPlaceRecognitionScore(0), mnBAGlobalForKF(0), 
+    N(0), mvKeys(std::vector<KeyPointEx>()), mvKeysUn(std::vector<KeyPointEx>()), mvKeyEdges(std::vector<KeyEdge>()), mPrevKF(nullptr), 
+    mNextKF(nullptr), mbHasVelocity(false), mbNotErase(false), mbToBeErased(false), mbBad(false) 
 {
-    mnId=nNextId++;
+    mnId = nNextId++;
     // Initialize the grid for storing keypoint indices for fast access
     mGrid.resize(GeometricCamera::FRAME_GRID_COLS, std::vector<std::vector<std::size_t>>(GeometricCamera::FRAME_GRID_ROWS, std::vector<std::size_t>()));
 }
+
+// ==================== POSE OPERATIONS ====================
 
 void KeyFrame::SetPose(const Sophus::SE3f &Tcw)
 {
@@ -32,7 +40,7 @@ void KeyFrame::SetPose(const Sophus::SE3f &Tcw)
     mTwc = mTcw.inverse();
     mRwc = mTwc.rotationMatrix();
 
-    if (mpImuCalib->mbIsSet) // TODO Use a flag instead of the OpenCV matrix
+    if (mpImuCalib->mbIsSet) // TODO: Use a flag instead of the OpenCV matrix
     {
         mOwb = mRwc * mpImuCalib->mTcb.translation() + mTwc.translation();
     }
@@ -57,7 +65,8 @@ Sophus::SE3f KeyFrame::GetPoseInverse()
     return mTwc;
 }
 
-Eigen::Vector3f KeyFrame::GetCameraCenter(){
+Eigen::Vector3f KeyFrame::GetCameraCenter()
+{
     std::unique_lock<std::mutex> lock(mMutexPose);
     return mTwc.translation();
 }
@@ -80,7 +89,8 @@ Sophus::SE3f KeyFrame::GetImuPose()
     return mTwc * mpImuCalib->mTcb;
 }
 
-Eigen::Matrix3f KeyFrame::GetRotation(){
+Eigen::Matrix3f KeyFrame::GetRotation()
+{
     std::unique_lock<std::mutex> lock(mMutexPose);
     return mRcw;
 }
@@ -103,14 +113,16 @@ bool KeyFrame::isVelocitySet()
     return mbHasVelocity;
 }
 
+// ==================== COVISIBILITY GRAPH OPERATIONS ====================
+
 void KeyFrame::AddConnection(KeyFrame *pKF, const int &weight)
 {
     {
         std::unique_lock<std::mutex> lock(mMutexConnections);
         if(!mConnectedKeyFrameWeights.count(pKF))
-            mConnectedKeyFrameWeights[pKF]=weight;
-        else if(mConnectedKeyFrameWeights[pKF]!=weight)
-            mConnectedKeyFrameWeights[pKF]=weight;
+            mConnectedKeyFrameWeights[pKF] = weight;
+        else if(mConnectedKeyFrameWeights[pKF] != weight)
+            mConnectedKeyFrameWeights[pKF] = weight;
         else
             return;
     }
@@ -121,15 +133,16 @@ void KeyFrame::AddConnection(KeyFrame *pKF, const int &weight)
 void KeyFrame::UpdateBestCovisibles()
 {
     std::unique_lock<std::mutex> lock(mMutexConnections);
-    std::vector<std::pair<int,KeyFrame*> > vPairs;
+    std::vector<std::pair<int,KeyFrame*>> vPairs;
     vPairs.reserve(mConnectedKeyFrameWeights.size());
-    for(std::map<KeyFrame*,int>::iterator mit=mConnectedKeyFrameWeights.begin(), mend=mConnectedKeyFrameWeights.end(); mit!=mend; mit++)
-       vPairs.push_back(std::make_pair(mit->second,mit->first));
+    for(std::map<KeyFrame*,int>::iterator mit = mConnectedKeyFrameWeights.begin(), 
+        mend = mConnectedKeyFrameWeights.end(); mit != mend; mit++)
+        vPairs.push_back(std::make_pair(mit->second, mit->first));
 
-    sort(vPairs.begin(),vPairs.end());
+    sort(vPairs.begin(), vPairs.end());
     std::list<KeyFrame*> lKFs;
     std::list<int> lWs;
-    for(size_t i=0, iend=vPairs.size(); i<iend;i++)
+    for(size_t i = 0, iend = vPairs.size(); i < iend; i++)
     {
         if(!vPairs[i].second->isBad())
         {
@@ -138,7 +151,7 @@ void KeyFrame::UpdateBestCovisibles()
         }
     }
 
-    mvpOrderedConnectedKeyFrames = std::vector<KeyFrame*>(lKFs.begin(),lKFs.end());
+    mvpOrderedConnectedKeyFrames = std::vector<KeyFrame*>(lKFs.begin(), lKFs.end());
     mvOrderedWeights = std::vector<int>(lWs.begin(), lWs.end());
 }
 
@@ -146,7 +159,8 @@ std::set<KeyFrame*> KeyFrame::GetConnectedKeyFrames()
 {
     std::unique_lock<std::mutex> lock(mMutexConnections);
     std::set<KeyFrame*> s;
-    for(std::map<KeyFrame*,int>::iterator mit=mConnectedKeyFrameWeights.begin();mit!=mConnectedKeyFrameWeights.end();mit++)
+    for(std::map<KeyFrame*,int>::iterator mit = mConnectedKeyFrameWeights.begin();
+        mit != mConnectedKeyFrameWeights.end(); mit++)
         s.insert(mit->first);
     return s;
 }
@@ -160,11 +174,11 @@ std::vector<KeyFrame*> KeyFrame::GetVectorCovisibleKeyFrames()
 std::vector<KeyFrame*> KeyFrame::GetBestCovisibilityKeyFrames(const int &N)
 {
     std::unique_lock<std::mutex> lock(mMutexConnections);
-    if((int)mvpOrderedConnectedKeyFrames.size()<N)
+    if((int)mvpOrderedConnectedKeyFrames.size() < N)
         return mvpOrderedConnectedKeyFrames;
     else
-        return std::vector<KeyFrame*>(mvpOrderedConnectedKeyFrames.begin(),mvpOrderedConnectedKeyFrames.begin()+N);
-
+        return std::vector<KeyFrame*>(mvpOrderedConnectedKeyFrames.begin(),
+                                      mvpOrderedConnectedKeyFrames.begin() + N);
 }
 
 std::vector<KeyFrame*> KeyFrame::GetCovisiblesByWeight(const int &w)
@@ -176,16 +190,18 @@ std::vector<KeyFrame*> KeyFrame::GetCovisiblesByWeight(const int &w)
         return std::vector<KeyFrame*>();
     }
 
-    std::vector<int>::iterator it = std::upper_bound(mvOrderedWeights.begin(),mvOrderedWeights.end(),w,[](int a, int b){ return a > b; });
+    std::vector<int>::iterator it = std::upper_bound(mvOrderedWeights.begin(), mvOrderedWeights.end(), w,
+                                                     [](int a, int b){ return a > b; });
 
-    if(it==mvOrderedWeights.end() && mvOrderedWeights.back() < w)
+    if(it == mvOrderedWeights.end() && mvOrderedWeights.back() < w)
     {
         return std::vector<KeyFrame*>();
     }
     else
     {
-        int n = it-mvOrderedWeights.begin();
-        return std::vector<KeyFrame*>(mvpOrderedConnectedKeyFrames.begin(), mvpOrderedConnectedKeyFrames.begin()+n);
+        int n = it - mvOrderedWeights.begin();
+        return std::vector<KeyFrame*>(mvpOrderedConnectedKeyFrames.begin(), 
+                                      mvpOrderedConnectedKeyFrames.begin() + n);
     }
 }
 
@@ -198,36 +214,37 @@ int KeyFrame::GetWeight(KeyFrame *pKF)
         return 0;
 }
 
+// ==================== MAP POINT OPERATIONS ====================
+
 void KeyFrame::AddMapPoint(MapPoint *pMP, const size_t &idx)
 {
     std::unique_lock<std::mutex> lock(mMutexFeatures);
-    mvpMapPoints[idx]=pMP;
+    mvpMapPoints[idx] = pMP;
 }
 
 void KeyFrame::EraseMapPointMatch(const int &idx)
 {
     std::unique_lock<std::mutex> lock(mMutexFeatures);
-    mvpMapPoints[idx]=static_cast<MapPoint*>(NULL);
+    mvpMapPoints[idx] = static_cast<MapPoint*>(NULL);
 }
 
 void KeyFrame::EraseMapPointMatch(MapPoint* pMP)
 {
     int index = pMP->GetIndexInKeyFrame(this);
     if(index != -1)
-        mvpMapPoints[index]=static_cast<MapPoint*>(NULL);
+        mvpMapPoints[index] = static_cast<MapPoint*>(NULL);
 }
-
 
 void KeyFrame::ReplaceMapPointMatch(const int &idx, MapPoint* pMP)
 {
-    mvpMapPoints[idx]=pMP;
+    mvpMapPoints[idx] = pMP;
 }
 
 std::set<MapPoint*> KeyFrame::GetMapPoints()
 {
     std::unique_lock<std::mutex> lock(mMutexFeatures);
     std::set<MapPoint*> s;
-    for(size_t i=0, iend=mvpMapPoints.size(); i<iend; i++)
+    for(size_t i = 0, iend = mvpMapPoints.size(); i < iend; i++)
     {
         if(!mvpMapPoints[i])
             continue;
@@ -242,9 +259,9 @@ int KeyFrame::TrackedMapPoints(const int &minObs)
 {
     std::unique_lock<std::mutex> lock(mMutexFeatures);
 
-    int nPoints=0;
-    const bool bCheckObs = minObs>0;
-    for(int i=0; i<N; i++)
+    int nPoints = 0;
+    const bool bCheckObs = minObs > 0;
+    for(int i = 0; i < N; i++)
     {
         MapPoint* pMP = mvpMapPoints[i];
         if(pMP)
@@ -253,7 +270,7 @@ int KeyFrame::TrackedMapPoints(const int &minObs)
             {
                 if(bCheckObs)
                 {
-                    if(mvpMapPoints[i]->Observations()>=minObs)
+                    if(mvpMapPoints[i]->Observations() >= minObs)
                         nPoints++;
                 }
                 else
@@ -288,9 +305,9 @@ void KeyFrame::UpdateConnections(bool upParent)
         vpMP = mvpMapPoints;
     }
 
-    //For all map points in keyframe check in which other keyframes are they seen
-    //Increase counter for those keyframes
-    for(std::vector<MapPoint*>::iterator vit=vpMP.begin(), vend=vpMP.end(); vit!=vend; vit++)
+    // For all map points in keyframe check in which other keyframes are they seen
+    // Increase counter for those keyframes
+    for(std::vector<MapPoint*>::iterator vit = vpMP.begin(), vend = vpMP.end(); vit != vend; vit++)
     {
         MapPoint* pMP = *vit;
 
@@ -302,9 +319,10 @@ void KeyFrame::UpdateConnections(bool upParent)
 
         std::map<KeyFrame*, int> observations = pMP->GetObservations();
 
-        for(std::map<KeyFrame*, int>::iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
+        for(std::map<KeyFrame*, int>::iterator mit = observations.begin(), mend = observations.end(); 
+            mit != mend; mit++)
         {
-            if(mit->first->mnId==mnId || mit->first->isBad())
+            if(mit->first->mnId == mnId || mit->first->isBad())
                 continue;
             KFcounter[mit->first]++;
         }
@@ -314,42 +332,43 @@ void KeyFrame::UpdateConnections(bool upParent)
     if(KFcounter.empty())
         return;
 
-    //If the counter is greater than threshold add connection
-    //In case no keyframe counter is over threshold add the one with maximum counter
-    int nmax=0;
-    KeyFrame* pKFmax=NULL;
-    int th = 5; //byz:增加共视关键帧数量
+    // If the counter is greater than threshold add connection
+    // In case no keyframe counter is over threshold add the one with maximum counter
+    int nmax = 0;
+    KeyFrame* pKFmax = NULL;
+    int th = 5; // Increase covisible keyframe count
 
-    std::vector<std::pair<int,KeyFrame*> > vPairs;
+    std::vector<std::pair<int,KeyFrame*>> vPairs;
     vPairs.reserve(KFcounter.size());
     if(!upParent)
         std::cout << "UPDATE_CONN: current KF " << mnId << std::endl;
-    for(std::map<KeyFrame*,int>::iterator mit=KFcounter.begin(), mend=KFcounter.end(); mit!=mend; mit++)
+    for(std::map<KeyFrame*,int>::iterator mit = KFcounter.begin(), mend = KFcounter.end(); 
+        mit != mend; mit++)
     {
         if(!upParent)
             std::cout << "  UPDATE_CONN: KF " << mit->first->mnId << " ; num matches: " << mit->second << std::endl;
-        if(mit->second>nmax)
+        if(mit->second > nmax)
         {
-            nmax=mit->second;
-            pKFmax=mit->first;
+            nmax = mit->second;
+            pKFmax = mit->first;
         }
-        if(mit->second>=th)
+        if(mit->second >= th)
         {
-            vPairs.push_back(std::make_pair(mit->second,mit->first));
-            (mit->first)->AddConnection(this,mit->second);
+            vPairs.push_back(std::make_pair(mit->second, mit->first));
+            (mit->first)->AddConnection(this, mit->second);
         }
     }
 
     if(vPairs.empty())
     {
-        vPairs.push_back(std::make_pair(nmax,pKFmax));
-        pKFmax->AddConnection(this,nmax);
+        vPairs.push_back(std::make_pair(nmax, pKFmax));
+        pKFmax->AddConnection(this, nmax);
     }
 
-    sort(vPairs.begin(),vPairs.end());
+    sort(vPairs.begin(), vPairs.end());
     std::list<KeyFrame*> lKFs;
     std::list<int> lWs;
-    for(size_t i=0; i<vPairs.size();i++)
+    for(size_t i = 0; i < vPairs.size(); i++)
     {
         lKFs.push_front(vPairs[i].second);
         lWs.push_front(vPairs[i].first);
@@ -359,11 +378,12 @@ void KeyFrame::UpdateConnections(bool upParent)
         std::unique_lock<std::mutex> lockCon(mMutexConnections);
 
         mConnectedKeyFrameWeights = KFcounter;
-        mvpOrderedConnectedKeyFrames = std::vector<KeyFrame*>(lKFs.begin(),lKFs.end());
+        mvpOrderedConnectedKeyFrames = std::vector<KeyFrame*>(lKFs.begin(), lKFs.end());
         mvOrderedWeights = std::vector<int>(lWs.begin(), lWs.end());
-
     }
 }
+
+// ==================== LOOP CLOSURE OPERATIONS ====================
 
 void KeyFrame::AddLoopEdge(KeyFrame *pKF)
 {
@@ -377,6 +397,8 @@ std::set<KeyFrame*> KeyFrame::GetLoopEdges()
     std::unique_lock<std::mutex> lockCon(mMutexConnections);
     return mspLoopEdges;
 }
+
+// ==================== KEYFRAME MANAGEMENT ====================
 
 void KeyFrame::SetNotErase()
 {
@@ -498,6 +520,8 @@ std::vector<size_t> KeyFrame::GetFeaturesInArea(const float &x, const float &y, 
     return vIndices;
 }
 
+// ==================== IMU OPERATIONS ====================
+
 void KeyFrame::SetNewBias(const IMU::Bias &b)
 {
     std::unique_lock<std::mutex> lock(mMutexPose);
@@ -524,10 +548,12 @@ IMU::Bias KeyFrame::GetImuBias()
     return mImuBias;
 }
 
+// ==================== MAP EDGE OPERATIONS ====================
+
 void KeyFrame::AddMapEdge(MapEdge* pME, const size_t &idx)
 {
     std::unique_lock<std::mutex> lock(mMutexFeatures);
-    mvpMapEdges[idx]=pME;
+    mvpMapEdges[idx] = pME;
 }
 
 MapEdge* KeyFrame::GetMapEdge(int idx)
@@ -538,11 +564,11 @@ MapEdge* KeyFrame::GetMapEdge(int idx)
 
 int KeyFrame::FineEdgeIdx(unsigned int p1_id, unsigned int p2_id)
 {
-    if(p1_id < 0 || p1_id >= mvKeysUn.size() || p2_id < 0 || p2_id >= mvKeysUn.size())
+    if(p1_id >= mvKeysUn.size() || p2_id >= mvKeysUn.size())
         return -1;
 
     std::vector<unsigned int> l1_indices = mvKeysUn[p1_id].mvConnected;
-    std::vector<unsigned int> l2_indices = mvKeysUn[p1_id].mvConnected;
+    std::vector<unsigned int> l2_indices = mvKeysUn[p2_id].mvConnected; // Fixed: was p1_id
 
     for(unsigned int l1_id : l1_indices)
     {

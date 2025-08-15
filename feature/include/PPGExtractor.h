@@ -1,9 +1,6 @@
 /**
  * @file PPGExtractor.h
  * @brief Point-Point-Line Graph (PPG) feature extractor for SLAM
- * @details This class implements a deep learning-based feature extractor that detects
- *          junctions (keypoints), line segments, and generates descriptors using
- *          PyTorch models. It combines point and line features for robust visual SLAM.
  */
 
 #pragma once
@@ -32,146 +29,72 @@ class KeyPointEx;
 
 /**
  * @class PPGExtractor
- * @brief Deep learning-based point and line feature extractor
- * @details This class uses PyTorch neural networks to extract junction points and line segments
- *          from images. It performs the following operations:
- *          - Junction detection using heat map analysis
- *          - Line segment detection and optimization
- *          - Feature descriptor generation
- *          - Camera distortion handling and feature undistortion
+ * @brief Deep learning-based point and line feature extractor using PyTorch
  */
-
 class PPGExtractor
 {
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
     // ==================== CONSTRUCTORS/DESTRUCTORS ====================
-    
-    /**
-     * @brief Constructor that initializes the PPG extractor with camera and model parameters
-     * @param pCam Pointer to geometric camera for distortion correction
-     * @param dataPath Path to the directory containing PyTorch model files
-     */
+
+    /// Constructor with model paths and camera
     PPGExtractor(GeometricCamera *pCam, std::string dataPath);
     
-    /**
-     * @brief Destructor
-     */
+    /// Destructor
     ~PPGExtractor();
 
     // ==================== MAIN INTERFACE ====================
     
-    /**
-     * @brief Main extraction function that processes an image and returns features
-     * @param srcMat Input grayscale image
-     * @param _keypoints Output vector of detected keypoints (distorted)
-     * @param _keypoints_un Output vector of undistorted keypoints
-     * @param _keyedges Output vector of detected line segments
-     * @param _descriptors Output matrix of feature descriptors
-     */
+    /// Main extraction function that processes an image and returns features
     void run(cv::Mat srcMat, std::vector<KeyPointEx>& _keypoints, std::vector<KeyPointEx>& _keypoints_un, 
              std::vector<KeyEdge>& _keyedges, cv::Mat &_descriptors);
 
     // ==================== PROCESSING PIPELINE ====================
     
-    /**
-     * @brief Performs neural network inference on undistorted image
-     * @param undistortedMat Undistorted input image
-     */
+    /// Performs neural network inference on undistorted image
     void inference(cv::Mat undistortedMat);
 
-    /**
-     * @brief Detects junction points from heat map
-     */
+    /// Detects junction points from heat map
     void detectKeyPoint();
 
-    /**
-     * @brief Detects line segments from heat map
-     */
+    /// Detects line segments from heat map
     void detectLines();
 
-    /**
-     * @brief Optimizes junction positions using iterative refinement
-     */
-    void optimizeJunctions();
-
-    /**
-     * @brief Generates descriptors for detected features
-     */
-    void genDescriptor();
-
-    /**
-     * @brief Generates point descriptors specifically
-     */
+    /// Generates point descriptors specifically
     void genPointDescriptor();
 
     // ==================== UTILITY FUNCTIONS ====================
     
-    /**
-     * @brief Displays tensor for debugging purposes
-     * @param ts Tensor to display
-     */
+    /// Displays tensor for debugging purposes
     void showTensor(const torch::Tensor& ts);
 
     // ==================== ACCESSOR FUNCTIONS ====================
     
-    /**
-     * @brief Get detected keypoints
-     * @return Vector of detected keypoints
-     */
+    /// Get detected keypoints
     const std::vector<KeyPointEx>& getKeyPoints() const { return mvKeyPoints; }
     
-    /**
-     * @brief Get detected line segments
-     * @return Vector of detected line segments
-     */
+    /// Get detected line segments
     const std::vector<KeyEdge>& getKeyEdges() const { return mvKeyEdges; }
 
 private:
     // ==================== PRIVATE HELPER FUNCTIONS ====================
     
-    /**
-     * @brief Refines heat map using adaptive thresholding
-     * @param scoreMap Input/output score map tensor
-     */
+    /// Refines heat map using adaptive thresholding
     void refineHeatMap(torch::Tensor &scoreMap);
 
-    /**
-     * @brief Performs bilinear interpolation on matrix
-     * @param M Input matrix
-     * @param ptX X coordinate (can be fractional)
-     * @param ptY Y coordinate (can be fractional)
-     * @return Interpolated value
-     */
+    /// Performs bilinear interpolation on matrix
     float bilinearInterpolation(const Eigen::MatrixXf & M, float ptX, float ptY); 
 
-    /**
-     * @brief Computes connected line score for junction optimization
-     * @param pid Point ID
-     * @param biax X bias for optimization
-     * @param biay Y bias for optimization
-     * @return Score value
-     */
+    /// Computes connected line score for junction optimization
     float connectedLineScore(unsigned int pid, float biax=0., float biay=0.);
 
-    /**
-     * @brief Computes heat map score along line segment
-     * @param ps Start point of line segment
-     * @param pe End point of line segment
-     * @return Line score from heat map
-     */
+    /// Computes heat map score along line segment
     float heatMapLineScore(const Eigen::Vector2f &ps, const Eigen::Vector2f &pe);
 
-    /**
-     * @brief Computes inlier rate along line segment
-     * @param ps Start point of line segment
-     * @param pe End point of line segment
-     * @return Inlier rate (0.0 to 1.0)
-     */
+    /// Computes inlier rate along line segment
     float heatMapInlierRate(const Eigen::Vector2f &ps, const Eigen::Vector2f &pe);
 
-    // ==================== MEMBER VARIABLES ====================
 public:
     // ==================== EXTRACTED FEATURES ====================
     std::vector<KeyPointEx> mvKeyPoints;    ///< Detected junction points
@@ -189,8 +112,6 @@ public:
     static int          HEATMAP_REFINE_SZ;        ///< Grid size for heat map refinement
     static float        LINE_HEATMAP_THRESH;      ///< Heat map threshold for line validation
     static float        LINE_INLIER_RATE;         ///< Required inlier rate for line segments
-    static int          OPTIMIZE_ITER_NUM;        ///< Number of optimization iterations
-    static float        OPTIMIZE_ITER_DECAY;     ///< Step size decay factor for optimization
 
 private:
     // ==================== NEURAL NETWORK MODELS ====================
@@ -221,11 +142,6 @@ private:
     cv::Mat heatMat;                        ///< Heat map as OpenCV matrix
     Eigen::MatrixXf eigenHeat;              ///< Heat map as Eigen matrix (undistorted)
     unsigned char *nmsFlag;                 ///< Non-maximum suppression flags
-
-    // ==================== DEPRECATED/EXPERIMENTAL ====================
-    torch::jit::Module model_1;             ///< Experimental model (unused)
-    torch::jit::Module model_2;             ///< Experimental model (unused)
-    torch::Tensor featureMap2;              ///< Experimental feature map (unused)
     
     // ==================== STATIC CONFIGURATION ====================
     static torch::Device dev;               ///< PyTorch device (CPU/GPU)

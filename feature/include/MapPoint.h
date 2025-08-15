@@ -1,45 +1,47 @@
 
+/**
+ * @file MapPoint.h
+ * @brief 3D point in the world map for PPG-SLAM system
+ */
+
 #pragma once
 
-// Eigen for 3D vector and geometry operations
-#include <Eigen/Geometry>
-// OpenCV for matrix and descriptor operations
-#include <opencv2/core/core.hpp>
+// ==================== SYSTEM INCLUDES ====================
 #include <mutex>
 #include <map>
 #include <vector>
 #include <chrono>
 
-// Forward declarations to reduce compile dependencies
+// ==================== THIRD-PARTY INCLUDES ====================
+#include <Eigen/Geometry>
+#include <opencv2/core/core.hpp>
+
+// ==================== FORWARD DECLARATIONS ====================
 class KeyFrame;
 class MapEdge;
 class MapColine;
 
-// Computes the distance between two feature descriptors
+// ==================== UTILITY FUNCTIONS ====================
 float DescriptorDistance(const cv::Mat &a, const cv::Mat &b);
 
 /**
- * @brief MapPoint represents a 3D point in the world map observed by multiple keyframes.
- * It stores position, observations, descriptors, and connectivity (edges/colines) for SLAM.
+ * @class MapPoint
+ * @brief 3D point in the world map observed by multiple keyframes
  */
 class MapPoint
 {
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-    /**
-     * @brief Constructor
-     * @param Pos 3D position in world coordinates
-     * @param pRefKF Reference keyframe observing this point
-     */
+    /// Constructor with 3D position and reference keyframe
     MapPoint(const Eigen::Vector3f &Pos, KeyFrame* pRefKF);
 
-    // --- Position and Geometry ---
+    // ==================== POSITION AND GEOMETRY ====================
     void SetWorldPos(const Eigen::Vector3f &Pos); ///< Set 3D world position
     Eigen::Vector3f GetWorldPos();                ///< Get 3D world position
     Eigen::Vector3f GetNormal();                  ///< Get mean viewing direction
 
-    // --- Observations and KeyFrames ---
+    // ==================== OBSERVATIONS AND KEYFRAMES ====================
     KeyFrame* GetReferenceKeyFrame();             ///< Get the reference keyframe
     std::map<KeyFrame*, int> GetObservations();   ///< Get all observing keyframes and their feature indices
     int Observations();                           ///< Get number of observations
@@ -49,52 +51,54 @@ public:
     bool IsInKeyFrame(KeyFrame* pKF);             ///< Check if observed in a keyframe
     int GetKeyFrameIdx(KeyFrame* pKF);            ///< Get keyframe index
 
-    // --- State and Replacement ---
+    // ==================== STATE AND TRACKING ====================
     void SetBadFlag();                            ///< Mark as bad (to be removed)
     bool isBad();                                 ///< Check if marked as bad
     void Replace(MapPoint* pMP);                  ///< Replace this point with another
     MapPoint* GetReplaced();                      ///< Get the point that replaced this one
 
-    // --- Tracking statistics ---
+    /// Tracking statistics
     void IncreaseVisible(int n=1);                ///< Increase visible count
     void IncreaseFound(int n=1);                  ///< Increase found count
     float GetFoundRatio();                        ///< Get found/visible ratio
     inline int GetFound() { return mnFound; }     ///< Get found count
 
-    // --- Descriptor and Normal update ---
+    // ==================== DESCRIPTORS AND GEOMETRY ====================
     void ComputeDistinctiveDescriptors();         ///< Compute best descriptor
     cv::Mat GetDescriptor();                      ///< Get best descriptor
     void UpdateNormalAndDepth();                  ///< Update normal and depth statistics
     float GetMinDistanceInvariance();             ///< Get min scale-invariant distance
     float GetMaxDistanceInvariance();             ///< Get max scale-invariant distance
 
-    // --- Graph structure: Edges and Colines ---
+    // ==================== GRAPH STRUCTURE ====================
+    /// Edge operations
     void addEdge(MapEdge* pME);                   ///< Add an edge
     void removeEdge(MapEdge* pME);                ///< Remove an edge
     MapEdge* getEdge(MapPoint *pMP);              ///< Get edge to another MapPoint
     std::vector<MapEdge*> getEdges();             ///< Get all edges
+    
+    /// Collinearity operations
     MapColine* addColine(MapPoint* pMPs, MapPoint* pMPe, KeyFrame* pKF, float weight = -1); ///< Add a coline
     std::vector<MapColine*> removeColineOutliers(); ///< Remove outlier colines
     std::vector<MapColine*> getColinearity();     ///< Get all colines
 
-    // --- Member variables ---
 public:
-    // Unique ID for this MapPoint
-    long unsigned int mnId;
-    static long unsigned int nNextId;
+    // ==================== IDENTIFICATION ====================
+    long unsigned int mnId;       ///< Unique ID
+    static long unsigned int nNextId; ///< Global ID counter
     long int mnFirstKFid;         ///< First keyframe observing this point
     long int mnFirstFrame;        ///< First frame observing this point
     int nObs;                     ///< Number of observations
 
-    // --- Tracking variables ---
+    // ==================== TRACKING VARIABLES ====================
     bool mbTrackInView;           ///< Is this point currently in view?
-    float mTrackProjX, mTrackProjY, mTrackDepth, mTrackViewCos;
-    long unsigned int mnTrackReferenceForFrame;
-    long unsigned int mnTrackedbyFrame;
+    float mTrackProjX, mTrackProjY, mTrackDepth, mTrackViewCos; ///< Tracking projection data
+    long unsigned int mnTrackReferenceForFrame; ///< Reference frame for tracking
+    long unsigned int mnTrackedbyFrame;         ///< Frame that tracked this point
 
-    // --- Local mapping variables ---
-    long unsigned int mnBALocalForKF;
-    long unsigned int mnFuseCandidateForKF;
+    // ==================== OPTIMIZATION VARIABLES ====================
+    long unsigned int mnBALocalForKF;      ///< Local BA keyframe ID
+    long unsigned int mnFuseCandidateForKF; ///< Fusion candidate keyframe ID
 
     // --- Loop closing variables ---
     long unsigned int mnCorrectedByKF;
