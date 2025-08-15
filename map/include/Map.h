@@ -5,8 +5,11 @@
 
 #pragma once
 
+// ==================== SYSTEM INCLUDES ====================
 #include <set>
 #include <mutex>
+
+// ==================== LOCAL INCLUDES ====================
 #include "IMU.h"
 #include "PPGGraph.h"
 #include "MapPoint.h"
@@ -14,7 +17,7 @@
 #include "GeometricCamera.h"
 #include "Frame.h"
 
-// Forward declarations
+// ==================== FORWARD DECLARATIONS ====================
 class GeometricCamera;
 class KeyPointEx;
 class MapEdge;
@@ -25,61 +28,108 @@ class Frame;
 
 using namespace std;
 
-/// Global map containing keyframes, map points and database
+/**
+ * @class Map
+ * @brief Global map containing keyframes, map points and place recognition database
+ */
 class Map
 {
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
     
-    // ==================== CONSTRUCTION ====================
+    // ==================== CONSTRUCTORS/DESTRUCTORS ====================
     
+    /**
+     * @brief Constructor with camera, IMU and vocabulary
+     * @param pCam Camera model
+     * @param pImu IMU calibration
+     * @param pVoc BoW vocabulary
+     */
     Map(GeometricCamera* pCam, IMU::Calib *pImu, DBoW3::Vocabulary *pVoc);
+    
+    /**
+     * @brief Destructor
+     */
     ~Map();
 
     // ==================== ELEMENT MANAGEMENT ====================
     
-    /// Add elements
-    void AddKeyFrame(KeyFrame* pKF);
-    void AddMapPoint(MapPoint* pMP);
-    void AddMapEdge(MapEdge *pME);
-    void AddMapColine(MapColine* pMC);
+    /// Element addition functions
+    void AddKeyFrame(KeyFrame* pKF);                            ///< Add keyframe to map
+    void AddMapPoint(MapPoint* pMP);                            ///< Add map point to map
+    void AddMapEdge(MapEdge *pME);                              ///< Add map edge to map
+    void AddMapColine(MapColine* pMC);                          ///< Add map coline to map
 
-    /// Remove elements
-    void EraseMapPoint(MapPoint* pMP);
-    void EraseKeyFrame(KeyFrame* pKF);
-    void EraseMapEdge(MapEdge *pME);
-    void EraseMapColine(MapColine* pMC);
+    /// Element removal functions
+    void EraseMapPoint(MapPoint* pMP);                          ///< Remove map point from map
+    void EraseKeyFrame(KeyFrame* pKF);                          ///< Remove keyframe from map
+    void EraseMapEdge(MapEdge *pME);                            ///< Remove map edge from map
+    void EraseMapColine(MapColine* pMC);                        ///< Remove map coline from map
 
-    /// Get all elements
-    std::vector<KeyFrame*> GetAllKeyFrames();
-    std::vector<MapPoint*> GetAllMapPoints();
-    std::vector<MapEdge*> GetAllMapEdges();
-    std::vector<MapColine*> GetAllMapColines();
+    /// Element getter functions
+    std::vector<KeyFrame*> GetAllKeyFrames();                  ///< Get all keyframes in map
+    std::vector<MapPoint*> GetAllMapPoints();                  ///< Get all map points in map
+    std::vector<MapEdge*> GetAllMapEdges();                    ///< Get all map edges in map
+    std::vector<MapColine*> GetAllMapColines();                ///< Get all map colines in map
 
     // ==================== MAP STATISTICS ====================
     
-    long unsigned int MapPointsInMap();
-    long unsigned int KeyFramesInMap();
-    long unsigned int GetMaxKFid();
-    KeyFrame* GetOriginKF();
+    long unsigned int MapPointsInMap();                        ///< Get number of map points
+    long unsigned int KeyFramesInMap();                        ///< Get number of keyframes
+    long unsigned int GetMaxKFid();                            ///< Get maximum keyframe ID
+    KeyFrame* GetOriginKF();                                   ///< Get origin keyframe
 
     // ==================== MAP STATE ====================
     
+    /**
+     * @brief Clear all map elements
+     */
     void clear();
+    
+    /**
+     * @brief Check if map has changed
+     * @return True if map changed
+     */
     bool CheckMapChanged();
+    
+    /**
+     * @brief Update map change information
+     */
     void InfoMapChange();
 
     // ==================== IMU INITIALIZATION ====================
     
+    /**
+     * @brief Set IMU as initialized
+     */
     void SetImuInitialized();
+    
+    /**
+     * @brief Check if IMU is initialized
+     * @return True if IMU is initialized
+     */
     bool isImuInitialized();
+    
+    /**
+     * @brief Apply scaled rotation to map
+     * @param T Transformation
+     * @param s Scale factor
+     * @param bScaledVel Scale velocities flag
+     */
     void ApplyScaledRotation(const Sophus::SE3f &T, const float s, const bool bScaledVel=false);
 
     // ==================== BUNDLE ADJUSTMENT FLAGS ====================
-    // NOTE: Function names have spelling error but maintained for compatibility
     
-    void SetInertialBA();    ///< Should be "SetInertialBA2" 
-    bool GetInertialBA();    ///< Should be "GetInertialBA2"
+    /**
+     * @brief Set inertial bundle adjustment flag
+     */
+    void SetInertialBA();
+    
+    /**
+     * @brief Get inertial bundle adjustment flag
+     * @return Bundle adjustment status
+     */
+    bool GetInertialBA();
 
     // ==================== PLACE RECOGNITION ====================
     
