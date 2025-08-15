@@ -53,7 +53,7 @@ void MSLocalMapping::Run()
                 if(mpMap->isImuInitialized())
                 {
                     bool bLarge = MSTracking::get().GetMatchesInliers()>75;
-                    Optimizer::LocalInertialBA(mpCurrentKeyFrame, &mbAbortBA, mpMap,num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA, bLarge, !mpMap->GetIniertialBA2());
+                    Optimizer::LocalInertialBA(mpCurrentKeyFrame, &mbAbortBA, mpMap,num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA, bLarge, !mpMap->GetInertialBA());
                     
                     float dist = (mpCurrentKeyFrame->mPrevKF->GetCameraCenter() - mpCurrentKeyFrame->GetCameraCenter()).norm() + (mpCurrentKeyFrame->mPrevKF->mPrevKF->GetCameraCenter() - mpCurrentKeyFrame->mPrevKF->GetCameraCenter()).norm();
                     if(dist>0.05)
@@ -71,7 +71,7 @@ void MSLocalMapping::Run()
                 //     {
                 //         cout << "start visual inertial BA" << endl;
                 //         mpMap->SetIniertialBA1();
-                //         mpMap->SetIniertialBA2();
+                //         mpMap->SetInertialBA();
                 //         InitializeIMU(1.f, 1e5, true);
                 //         cout << "end visual inertial BA" << endl;
                 //     }
@@ -483,7 +483,7 @@ void MSLocalMapping::KeyFrameCulling()
                     pKF->SetBadFlag();
                     mpMap->EraseKeyFrame(pKF);
                 }
-                else if(!mpMap->GetIniertialBA2() && ((pKF->GetImuPosition()-pKF->mPrevKF->GetImuPosition()).norm()<0.02) && (t<1)) //byz:少剔除一些关键帧，间隔3秒改为1秒
+                else if(!mpMap->GetInertialBA() && ((pKF->GetImuPosition()-pKF->mPrevKF->GetImuPosition()).norm()<0.02) && (t<1)) //byz:少剔除一些关键帧，间隔3秒改为1秒
                 {
                     pKF->SetBadFlag();
                     mpMap->EraseKeyFrame(pKF);

@@ -77,7 +77,7 @@ void MSLoopClosing::Run()
                     if (fabs(phi(0))<0.008f && fabs(phi(1))<0.008f && fabs(phi(2))<0.349f)
                     {
                         // If inertial, force only yaw
-                        if (mpMap->GetIniertialBA2())
+                        if (mpMap->GetInertialBA())
                         {
                             phi(0)=0;
                             phi(1)=0;
@@ -150,7 +150,7 @@ bool MSLoopClosing::NewDetectCommonRegions()
         mpCurrentKF->SetNotErase();
     }
 
-    if(!mpMap->GetIniertialBA2())
+    if(!mpMap->GetInertialBA())
     {
         mpMap->AddKeyFrame(mpCurrentKF);
         mpCurrentKF->SetErase();
@@ -266,7 +266,7 @@ bool MSLoopClosing::DetectAndReffineSim3FromLastKF(KeyFrame* pCurrentKF, KeyFram
         Eigen::Matrix<double, 7, 7> mHessian7x7;
 
         bool bFixedScale = true;
-        if(!mpMap->GetIniertialBA2())
+        if(!mpMap->GetInertialBA())
             bFixedScale=false;
         int numOptMatches = Optimizer::OptimizeSim3(mpMap, mpCurrentKF, pMatchedKF, vpMatchedMPs, gScm, 10, bFixedScale, mHessian7x7, true);
 
@@ -404,7 +404,7 @@ bool MSLoopClosing::DetectCommonRegionsFromBoW(std::vector<KeyFrame*> &vpBowCand
         {
             // Geometric validation
             bool bFixedScale = true;
-            if(!mpMap->GetIniertialBA2())
+            if(!mpMap->GetInertialBA())
                 bFixedScale=false;
 
             Sim3Solver solver = Sim3Solver(mpCurrentKF, pMostBoWMatchesKF, mpMap->mpCamera, vpMatchedPoints, bFixedScale, vpKeyFrameMatchedMP);
@@ -468,7 +468,7 @@ bool MSLoopClosing::DetectCommonRegionsFromBoW(std::vector<KeyFrame*> &vpBowCand
                     Eigen::Matrix<double, 7, 7> mHessian7x7;
 
                     bool bFixedScale = true;
-                    if(!mpMap->GetIniertialBA2())
+                    if(!mpMap->GetInertialBA())
                         bFixedScale=false;
 
                     int numOptMatches = Optimizer::OptimizeSim3(mpMap, mpCurrentKF, pKFi, vpMatchedMP, gScm, 10, true, mHessian7x7, true);
@@ -846,7 +846,7 @@ void MSLoopClosing::CorrectLoop()
     // Optimize graph
     bool bFixedScale = true;
     // TODO CHECK; Solo para el monocular inertial
-    if(!mpMap->GetIniertialBA2())
+    if(!mpMap->GetInertialBA())
         bFixedScale=false;
 
     //cout << "Optimize essential graph" << endl;

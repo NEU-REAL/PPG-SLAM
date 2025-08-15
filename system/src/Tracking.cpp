@@ -276,11 +276,10 @@ void MSTracking::Track()
         InitializeIMU(1e2, 1e10, true);
     else 
     {
-        if (!mpMap->GetIniertialBA1() && mTinit>Map::imuIniTm) // TODO:imu initialization time, 10for euroc ,5 for uma, 10 for tum \\ warning IMU 初始化时间对结果影响很大
+        if (!mpMap->GetInertialBA() && mTinit>Map::imuIniTm) // TODO:imu initialization time, 10for euroc ,5 for uma, 10 for tum \\ warning IMU 初始化时间对结果影响很大
         {
             cout << "start visual inertial BA" << endl;
-            mpMap->SetIniertialBA1();
-            mpMap->SetIniertialBA2();
+            mpMap->SetInertialBA();
             InitializeIMU(1.f, 1e5, true);
             cout << "end visual inertial BA" << endl;
         }
@@ -920,7 +919,7 @@ void MSTracking::SearchLocalPoints()
     int th = 10;
     if (mpMap->isImuInitialized())
     {
-        if (mpMap->GetIniertialBA2())
+        if (mpMap->GetInertialBA())
             th = 3;
         else
             th = 6;

@@ -1,5 +1,9 @@
-#include <thread>
+/**
+ * @file Frame.cpp
+ * @brief Frame class implementation
+ */
 
+#include <thread>
 #include "Frame.h"
 #include "MapPoint.h"
 #include "KeyFrame.h"
@@ -8,37 +12,72 @@
 #include "Pinhole.h"
 #include "Map.h"
 
-long unsigned int Frame::nNextId=0;
+// ==================== STATIC MEMBERS ====================
 
-Frame::Frame(): mpcpi(nullptr), mpExtractor(nullptr),mpImuPreintegrated(nullptr), 
-    mpImuPreintegratedFrame(nullptr), mpPrevFrame(nullptr), mpLastKeyFrame(nullptr), 
-    mpReferenceKF(nullptr), mbImuPreintegrated(false), mbHasPose(false), mbHasVelocity(false)
+long unsigned int Frame::nNextId = 0;
+
+// ==================== CONSTRUCTORS ====================
+
+Frame::Frame(): 
+    mnId(0), mTimeStamp(0.0), N(0), mbHasPose(false), mVw(Eigen::Vector3f::Zero()), mbHasVelocity(false), mImuBias(), 
+    mbImuPreintegrated(false), mpcpi(nullptr), mpExtractor(nullptr), mpImuPreintegrated(nullptr), mpImuPreintegratedFrame(nullptr), 
+    mpPrevFrame(nullptr), mpLastKeyFrame(nullptr), mpReferenceKF(nullptr), mpCamera(nullptr), mpImuCalib(nullptr)
 {}
 
-//Copy Constructor
-Frame::Frame(const Frame &frame) : mpcpi(frame.mpcpi), mpExtractor(frame.mpExtractor), 
-     mTimeStamp(frame.mTimeStamp), N(frame.N), mvKeys(frame.mvKeys), mvKeysUn(frame.mvKeysUn), 
-     mvKeyEdges(frame.mvKeyEdges), mBowVec(frame.mBowVec), mFeatVec(frame.mFeatVec),
-     mDescriptors(frame.mDescriptors.clone()), mvpMapPoints(frame.mvpMapPoints), mvpMapEdges(frame.mvpMapEdges), 
-     mvbOutlier(frame.mvbOutlier), mpImuCalib(frame.mpImuCalib), mpCamera(frame.mpCamera), 
-     mpImuPreintegrated(frame.mpImuPreintegrated), mpImuPreintegratedFrame(frame.mpImuPreintegratedFrame), mImuBias(frame.mImuBias),
-     mnId(frame.mnId), mpReferenceKF(frame.mpReferenceKF), 
-     mpPrevFrame(frame.mpPrevFrame), mpLastKeyFrame(frame.mpLastKeyFrame),
-     mbImuPreintegrated(frame.mbImuPreintegrated), mTcw(frame.mTcw), mbHasPose(false), mbHasVelocity(false)
+Frame::Frame(const Frame &frame) : 
+    mnId(frame.mnId), mTimeStamp(frame.mTimeStamp), N(frame.N), mvKeys(frame.mvKeys), mvKeysUn(frame.mvKeysUn), mvKeyEdges(frame.mvKeyEdges),
+    mDescriptors(frame.mDescriptors.clone()), mvpMapPoints(frame.mvpMapPoints), mvpMapEdges(frame.mvpMapEdges), mvbOutlier(frame.mvbOutlier), 
+    mBowVec(frame.mBowVec), mFeatVec(frame.mFeatVec), mTcw(frame.mTcw), mRwc(frame.mRwc), mOw(frame.mOw), mRcw(frame.mRcw), mtcw(frame.mtcw),
+    mbHasPose(false), mVw(frame.mVw), mbHasVelocity(false), mImuBias(frame.mImuBias), mbImuPreintegrated(frame.mbImuPreintegrated), mpcpi(frame.mpcpi), 
+    mpExtractor(frame.mpExtractor), mpImuPreintegrated(frame.mpImuPreintegrated), mpImuPreintegratedFrame(frame.mpImuPreintegratedFrame),
+    mpPrevFrame(frame.mpPrevFrame), mpLastKeyFrame(frame.mpLastKeyFrame), mpReferenceKF(frame.mpReferenceKF), mpCamera(frame.mpCamera), 
+    mpImuCalib(frame.mpImuCalib)
 {
     srcMat = frame.srcMat.clone();
-    for(int i=0;i<GeometricCamera::FRAME_GRID_COLS;i++)
-        for(int j=0; j<GeometricCamera::FRAME_GRID_ROWS; j++)
-            mGrid[i][j]=frame.mGrid[i][j];
+    
+    // Copy grid
+    for(int i = 0; i < GeometricCamera::FRAME_GRID_COLS; i++)
+        for(int j = 0; j < GeometricCamera::FRAME_GRID_ROWS; j++)
+            mGrid[i][j] = frame.mGrid[i][j];
 
     if(frame.mbHasPose)
         SetPose(frame.GetPose());
 
     if(frame.HasVelocity())
-    {
         SetVelocity(frame.GetVelocity());
-    }
 }
+
+Frame::Frame(const cv::Mat &imGray, const double &timeStamp, PPGExtractor* pExt, GeometricCamera* pCam, IMU::Calib *pImu, Frame* pPrevF)
+    : mnId(nNextId++), mTimeStamp(timeStamp), N(0),
+      mbHasPose(false), mVw(Eigen::Vector3f::Zero()), mbHasVelocity(false), 
+      mImuBias(), mbImuPreintegrated(false),
+      mpcpi(nullptr), mpExtractor(pExt), 
+      mpImuPreintegrated(nullptr), mpImuPreintegratedFrame(nullptr),
+      mpPrevFrame(pPrevF), mpLastKeyFrame(nullptr), mpReferenceKF(nullptr),
+      mpCamera(pCam), mpImuCalib(pImu)
+{
+    srcMat = imGray.clone();
+
+    // Extract features
+    mpExtractor->run(imGray, mvKeys, mvKeysUn, mvKeyEdges, mDescriptors); 
+    N = mvKeys.size();
+    
+    if(mvKeys.empty())
+        return;
+
+    // Initialize containers
+    mvpMapPoints = vector<MapPoint*>(N, static_cast<MapPoint*>(nullptr));
+    mvpMapEdges = vector<MapEdge*>(mvKeyEdges.size(), static_cast<MapEdge*>(nullptr));
+    mvbOutlier = vector<bool>(N, false);
+
+    AssignFeaturesToGrid();
+
+    // Set velocity from previous frame
+    if(pPrevF && pPrevF->HasVelocity())
+        SetVelocity(pPrevF->GetVelocity());
+}
+
+// ==================== KEYFRAME CREATION ====================
 
 KeyFrame* Frame::buildKeyFrame(Map* pMap)
 {
@@ -61,72 +100,40 @@ KeyFrame* Frame::buildKeyFrame(Map* pMap)
     ret->mvpMapEdges = mvpMapEdges;
     ret->srcMat = srcMat.clone();
 
+    // Copy grid
     ret->mGrid.resize(GeometricCamera::FRAME_GRID_COLS);
-    for(int i=0; i<GeometricCamera::FRAME_GRID_COLS;i++)
+    for(int i = 0; i < GeometricCamera::FRAME_GRID_COLS; i++)
     {
         ret->mGrid[i].resize(GeometricCamera::FRAME_GRID_ROWS);
-        for(int j=0; j<GeometricCamera::FRAME_GRID_ROWS; j++){
+        for(int j = 0; j < GeometricCamera::FRAME_GRID_ROWS; j++)
             ret->mGrid[i][j] = mGrid[i][j];
-        }
     }
 
-    if(!HasVelocity()) 
-    {
-        ret->mVw.setZero();
-        ret->mbHasVelocity = false;
-    }
-    else
+    // Set velocity and bias
+    if(HasVelocity()) 
     {
         ret->mVw = GetVelocity();
         ret->mbHasVelocity = true;
     }
+    else
+    {
+        ret->mVw.setZero();
+        ret->mbHasVelocity = false;
+    }
+    
     ret->mImuBias = mImuBias;
     ret->SetPose(GetPose());
 
+    // Compute BoW
     vector<cv::Mat> vCurrentDesc(mDescriptors.rows, cv::Mat());
-    for (int j=0;j<mDescriptors.rows;j++)
+    for(int j = 0; j < mDescriptors.rows; j++)
         vCurrentDesc[j] = mDescriptors.row(j);
-    pMap->mpVoc->transform(vCurrentDesc,ret->mBowVec,ret->mFeatVec,4);
+    pMap->mpVoc->transform(vCurrentDesc, ret->mBowVec, ret->mFeatVec, 4);
 
     return ret;
 }
 
-Frame::Frame(const cv::Mat &imGray, const double &timeStamp, PPGExtractor* pExt, GeometricCamera* pCam, IMU::Calib *pImu, Frame* pPrevF)
-    :mpcpi(NULL),mpExtractor(pExt), mTimeStamp(timeStamp), 
-    mpImuCalib(pImu), mpImuPreintegrated(NULL),mpPrevFrame(pPrevF),mpImuPreintegratedFrame(NULL), mpReferenceKF(static_cast<KeyFrame*>(NULL)), mbImuPreintegrated(false), mpCamera(pCam),
-     mbHasPose(false), mbHasVelocity(false)
-{
-    srcMat = imGray.clone();
-    // Frame ID
-    mnId=nNextId++;
-
-    mpExtractor->run(imGray, mvKeys, mvKeysUn, mvKeyEdges, mDescriptors); 
-
-    N = mvKeys.size();
-    if(mvKeys.empty())
-        return;
-
-    mvpMapPoints = vector<MapPoint*>(N,static_cast<MapPoint*>(NULL));
-
-    mvpMapEdges = vector<MapEdge*>(mvKeyEdges.size(),static_cast<MapEdge*>(NULL));
-
-    mvbOutlier = vector<bool>(N,false);
-
-    AssignFeaturesToGrid();
-
-    if(pPrevF)
-    {
-        if(pPrevF->HasVelocity())
-        {
-            SetVelocity(pPrevF->GetVelocity());
-        }
-    }
-    else
-    {
-        mVw.setZero();
-    }
-}
-
+// ==================== GRID MANAGEMENT ====================
 
 void Frame::AssignFeaturesToGrid()
 {
@@ -148,9 +155,10 @@ void Frame::AssignFeaturesToGrid()
     }
 }
 
+// ==================== POSE MANAGEMENT ====================
+
 void Frame::SetPose(const Sophus::SE3<float> &Tcw) {
     mTcw = Tcw;
-
     UpdatePoseMatrices();
     mbHasPose = true;
 }
@@ -187,6 +195,8 @@ void Frame::SetImuPoseVelocity(const Eigen::Matrix3f &Rwb, const Eigen::Vector3f
     mbHasPose = true;
 }
 
+// ==================== INTERNAL POSE COMPUTATION ====================
+
 void Frame::UpdatePoseMatrices()
 {
     Sophus::SE3<float> Twc = mTcw.inverse();
@@ -207,6 +217,8 @@ Eigen::Matrix<float,3,3> Frame::GetImuRotation() {
 Sophus::SE3<float> Frame::GetImuPose() {
     return mTcw.inverse() * mpImuCalib->mTcb;
 }
+
+// ==================== FEATURE MANAGEMENT ====================
 
 void Frame::CheckInFrustum(MapPoint *pMP, float viewingCosLimit)
 {
@@ -314,6 +326,7 @@ bool Frame::PosInGrid(const KeyPointEx &kp, int &posX, int &posY)
     return true;
 }
 
+// ==================== BAG OF WORDS ====================
 
 void Frame::ComputeBoW(Map* pMap)
 {
