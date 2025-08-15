@@ -95,6 +95,5 @@ public:
 
     SE3f mCameraPose;
 
-    std::deque<SE3f> mCameraPoses;
     std::mutex mMutex;
 };

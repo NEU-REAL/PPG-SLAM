@@ -7,15 +7,15 @@
 
 #include <math.h>
 
-#include "g2o/types/sim3/types_seven_dof_expmap.h"
-#include "g2o/types/sba/types_six_dof_expmap.h"
+#include "g2o/types/types_seven_dof_expmap.h"
+#include "g2o/types/types_six_dof_expmap.h"
 #include "g2o/core/sparse_block_matrix.h"
 #include "g2o/core/block_solver.h"
 #include "g2o/core/optimization_algorithm_levenberg.h"
 #include "g2o/core/optimization_algorithm_gauss_newton.h"
 #include "g2o/core/robust_kernel_impl.h"
-#include "g2o/solvers/dense/linear_solver_dense.h"
-#include "g2o/solvers/eigen/linear_solver_eigen.h"
+#include "g2o/solvers/linear_solver_dense.h"
+#include "g2o/solvers/linear_solver_eigen.h"
 
 typedef map<KeyFrame*,g2o::Sim3,std::less<KeyFrame*>, Eigen::aligned_allocator<std::pair<KeyFrame* const, g2o::Sim3> > > KeyFrameAndPose;
 

@@ -9,4 +9,5 @@ add_library(System SHARED
 target_link_libraries(System
 Sensors Feature Matching Map Optimizing
 ${Pangolin_LIBRARIES}
+${PROJECT_SOURCE_DIR}/Thirdparty/g2o/lib/libg2o.so
 )

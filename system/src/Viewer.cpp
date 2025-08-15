@@ -545,39 +545,7 @@ void MSViewing::DrawCurrentCamera(pangolin::OpenGlMatrix &Twc)
 void MSViewing::SetCurrentCameraPose(const SE3f &Tcw)
 {
     unique_lock<mutex> lock(mMutex);
-
-    mCameraPoses.push_back(Tcw.inverse());
-    if(mCameraPoses.size() > 1)
-        mCameraPoses.pop_front();
-
-    Eigen::Vector3f aveP(0,0,0);
-    Eigen::Vector3f aveR(0,0,0);
-    for(auto pos : mCameraPoses)
-    {
-        aveP += pos.translation();
-        aveR += pos.so3().log();
-    }
-    aveP /= mCameraPoses.size();
-    aveR /= mCameraPoses.size();
-    
-    if(mCameraPoses.front().so3().log().dot(mCameraPoses.back().so3().log()) < 0)
-    aveR = mCameraPoses.back().so3().log();
-
-    mCameraPose.translation() = aveP;
-    
-    // Safety check for aveR before calling SO3::exp
-    if (!aveR.allFinite()) {
-        std::cout << "Warning: Invalid rotation vector in Viewer" << std::endl;
-        mCameraPose.so3() = SO3f();  // Identity rotation
-    } else {
-        try {
-            mCameraPose.so3() = SO3f::exp(aveR);
-        } catch (const std::exception& e) {
-            std::cout << "Warning: SO3::exp failed in Viewer: " << e.what() << std::endl;
-            mCameraPose.so3() = SO3f();  // Identity rotation
-        }
-    }
-    // mCameraPose = Tcw.inverse();
+    mCameraPose = Tcw.inverse();
 }
 
 void MSViewing::GetCurrentOpenGLCameraMatrix(pangolin::OpenGlMatrix &M, pangolin::OpenGlMatrix &MOw)
