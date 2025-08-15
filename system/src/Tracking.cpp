@@ -930,9 +930,6 @@ void MSTracking::SearchLocalPoints()
     if (mState == LOST || mState == RECENTLY_LOST) // Lost for less than 1 second
         th = 15;
 
-    if(mbMapUpdated)
-        th = 20;
-
     matcher.ExtendMapMatches(mCurrentFrame, mvpLocalMapPoints, th);
 }
 
