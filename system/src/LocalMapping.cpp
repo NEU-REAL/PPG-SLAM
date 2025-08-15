@@ -53,7 +53,6 @@ void MSLocalMapping::Run()
                 if(mpMap->isImuInitialized())
                 {
                     bool bLarge = MSTracking::get().GetMatchesInliers()>75;
-                    bLarge = false;
                     Optimizer::LocalInertialBA(mpCurrentKeyFrame, &mbAbortBA, mpMap,num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA, bLarge, !mpMap->GetIniertialBA2());
                     
                     float dist = (mpCurrentKeyFrame->mPrevKF->GetCameraCenter() - mpCurrentKeyFrame->GetCameraCenter()).norm() + (mpCurrentKeyFrame->mPrevKF->mPrevKF->GetCameraCenter() - mpCurrentKeyFrame->mPrevKF->GetCameraCenter()).norm();
@@ -64,22 +63,22 @@ void MSLocalMapping::Run()
                     Optimizer::LocalBundleAdjustment(mpCurrentKeyFrame,&mbAbortBA, mpMap,num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA);
 
                 // Initialize IMU here
-                if(!mpMap->isImuInitialized())
-                    InitializeIMU(1e2, 1e10, true);
-                else 
-                {
-                    if (!mpMap->GetIniertialBA1() && mTinit>Map::imuIniTm) // TODO:imu initialization time, 10for euroc ,5 for uma, 10 for tum \\ warning IMU 初始化时间对结果影响很大
-                    {
-                        cout << "start visual inertial BA" << endl;
-                        mpMap->SetIniertialBA1();
-                        mpMap->SetIniertialBA2();
-                        InitializeIMU(1.f, 1e5, true);
-                        cout << "end visual inertial BA" << endl;
-                    }
-                    // scale refinement
-                    if (((mpMap->KeyFramesInMap())<=200) && mpMap->KeyFramesInMap() %10 == 0)
-                        ScaleRefinement();
-                }
+                // if(!mpMap->isImuInitialized())
+                //     InitializeIMU(1e2, 1e10, true);
+                // else 
+                // {
+                //     if (!mpMap->GetIniertialBA1() && mTinit>Map::imuIniTm) // TODO:imu initialization time, 10for euroc ,5 for uma, 10 for tum \\ warning IMU 初始化时间对结果影响很大
+                //     {
+                //         cout << "start visual inertial BA" << endl;
+                //         mpMap->SetIniertialBA1();
+                //         mpMap->SetIniertialBA2();
+                //         InitializeIMU(1.f, 1e5, true);
+                //         cout << "end visual inertial BA" << endl;
+                //     }
+                //     // scale refinement
+                //     if (((mpMap->KeyFramesInMap())<=200) && mpMap->KeyFramesInMap() %10 == 0)
+                //         ScaleRefinement();
+                // }
             }
             MSLoopClosing::get().InsertKeyFrame(mpCurrentKeyFrame);
         }

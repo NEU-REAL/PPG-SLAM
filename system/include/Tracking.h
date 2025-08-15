@@ -113,6 +113,9 @@ protected:
     void PreintegrateIMU();
     // Reset IMU biases and compute frame velocity
     void ResetFrameIMU();
+    // Initialize IMU
+    void InitializeIMU(float priorG = 1e2, float priorA = 1e6, bool bFirst = false);
+    void ScaleRefinement();
 private:
     // System
     System* mpSystem;
@@ -156,6 +159,16 @@ private:
     
     //Motion Model
     Sophus::SE3f mVelocity;
+
+    // IMU initialization variables
+    Eigen::Matrix3d mRwg;
+    Eigen::Vector3d mbg;
+    Eigen::Vector3d mba;
+    double mScale;
+    Eigen::MatrixXd infoInertial;
+    double mFirstTs;
+    bool bInitializing;
+    float mTinit;
 
     //calibration 
     IMU::Calib *mpImuCalib;

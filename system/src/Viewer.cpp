@@ -226,7 +226,7 @@ cv::Mat MSViewing::DrawFrame()
         if(!vbOutliers[i])
         {        
             if(mbShowPoint)
-                cv::circle(im, cv::Point2f(vCurrentKeys[i].mPos[0],vCurrentKeys[i].mPos[1]), 3, cv::Scalar(0,255,0),1);
+                cv::circle(im, cv::Point2f(vCurrentKeys[i].mPos[0],vCurrentKeys[i].mPos[1]), 3, cv::Scalar(0,255,255),1);
             mnTracked++;
         }
     }
@@ -547,7 +547,7 @@ void MSViewing::SetCurrentCameraPose(const Sophus::SE3f &Tcw)
     unique_lock<mutex> lock(mMutex);
 
     mCameraPoses.push_back(Tcw.inverse());
-    if(mCameraPoses.size() > 10)
+    if(mCameraPoses.size() > 1)
         mCameraPoses.pop_front();
 
     Eigen::Vector3f aveP(0,0,0);

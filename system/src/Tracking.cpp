@@ -27,6 +27,13 @@ void MSTracking::Launch(Map* pMap, const string &strNet)
     mbMapUpdated = false;
     mbReadyToInitializate = false;
 
+    // Initialize IMU variables
+    mScale = 1.0;
+    infoInertial = Eigen::MatrixXd::Zero(9,9);
+    mFirstTs = 0.f;
+    bInitializing = false;
+    mTinit = 0.f;
+
     mpCamera = pMap->mpCamera;
     mpImuCalib = pMap->mpImuCalib;
 
@@ -236,13 +243,11 @@ void MSTracking::Track()
     mLastProcessedState = mState;
     PreintegrateIMU();
 
-    // Get Map Mutex -> Map cannot be changed
-    unique_lock<mutex> lock(mpMap->mMutexMapUpdate);
-    {
-    mbMapUpdated = mpMap->CheckMapChanged();
     // initialize
     if (mState == NOT_INITIALIZED)
     {
+        // Get Map Mutex -> Map cannot be changed
+        unique_lock<mutex> lock(mpMap->mMutexMapUpdate);
         MonocularInitialization();
         MSViewing::get().UpdateFrame(mCurrentFrame);
         if (mState != OK) // If rightly initialized, mState=OK
@@ -257,157 +262,177 @@ void MSTracking::Track()
         }
         return;
     }
+
+    // Update time for IMU initialization if IMU is already initialized
+    if(mpMap->isImuInitialized() && mpLastKeyFrame && mpLastKeyFrame->mPrevKF)
+    {
+        float dist = (mpLastKeyFrame->mPrevKF->GetCameraCenter() - mpLastKeyFrame->GetCameraCenter()).norm();
+        if(dist>0.05)
+            mTinit += mpLastKeyFrame->mTimeStamp - mpLastKeyFrame->mPrevKF->mTimeStamp;
+    }
+
+    // Initialize IMU here
+    if(!mpMap->isImuInitialized())
+        InitializeIMU(1e2, 1e10, true);
+    else 
+    {
+        if (!mpMap->GetIniertialBA1() && mTinit>Map::imuIniTm) // TODO:imu initialization time, 10for euroc ,5 for uma, 10 for tum \\ warning IMU 初始化时间对结果影响很大
+        {
+            cout << "start visual inertial BA" << endl;
+            mpMap->SetIniertialBA1();
+            mpMap->SetIniertialBA2();
+            InitializeIMU(1.f, 1e5, true);
+            cout << "end visual inertial BA" << endl;
+        }
+        // scale refinement
+        if (((mpMap->KeyFramesInMap())<=200) && mpMap->KeyFramesInMap() %10 == 0)
+            ScaleRefinement();
+    }
+
+    mbMapUpdated = mpMap->CheckMapChanged();
     // track reference
     bool bOK(false);
-    // Local Mapping might have changed some MapPoints tracked in last frame
-    CheckReplacedInLastFrame();
-    if (!mpMap->isImuInitialized())
     {
-        if(mCurrentFrame.mnId < mnLastRelocFrameId + 2)
-            bOK = TrackReferenceKeyFrame();
-        else
+        // Get Map Mutex -> Map cannot be changed
+        unique_lock<mutex> lock(mpMap->mMutexMapUpdate);
+        // Local Mapping might have changed some MapPoints tracked in last frame
+        CheckReplacedInLastFrame();
+        if (!mpMap->isImuInitialized())
         {
-            bOK = TrackWithMotionModel();
-            if (!bOK)
+            if(mCurrentFrame.mnId < mnLastRelocFrameId + 2)
                 bOK = TrackReferenceKeyFrame();
+            else
+            {
+                bOK = TrackWithMotionModel();
+                if (!bOK)
+                    bOK = TrackReferenceKeyFrame();
+            }
         }
-    }
-    else
-        bOK = PredictStateIMU();
-    if (!bOK)
-    {
-        std::cerr<< "Track Reference KF Lost, Reseting current map..." <<std::endl;
-        mState = LOST;
-        std::cerr<< "done" <<std::endl;
-        return;
-    }
-    // track local map
-    if (!mCurrentFrame.mpReferenceKF)
-        mCurrentFrame.mpReferenceKF = mpReferenceKF;
-    // If we have an initial estimation of the camera pose and matching. Track the local map.
-    if (mState !=LOST && bOK)
-        bOK = TrackLocalMap();
-
-    if (mState !=LOST && bOK)
-    {
-        mTimeStampLost = mCurrentFrame.mTimeStamp;
-        mState = OK;
-    }
-    else if(mpMap->isImuInitialized())
-    {
-        mState = RECENTLY_LOST;
-        cout << "Fail to track local map! IMU only ..." << endl;
-        if(mCurrentFrame.mTimeStamp - mTimeStampLost < 5.)
+        else
+            bOK = PredictStateIMU();
+        if (!bOK)
         {
-            bOK = true;
-            PredictStateIMU();
-        }else
-        {
-            std::cerr<< "IMU takes too long, reseting current map..."<<std::endl;
+            std::cerr<< "Track Reference KF Lost, Reseting current map..." <<std::endl;
             mState = LOST;
             std::cerr<< "done" <<std::endl;
             return;
         }
-    }
-    else
-    {
-        std::cerr<< "Fail to track local map, reseting current map..." <<std::endl;
-        mState = LOST;
-        std::cerr<< "done" <<std::endl;
-        return;
-    }
-
-    if(mState!= LOST)
-    {
-
-        // Save frame if recent relocalization, since they are used for IMU reset (as we are making copy, it shluld be once mCurrFrame is completely modified)
-        if ((mCurrentFrame.mnId < (mnLastRelocFrameId + mpCamera->mfFps)) && (mCurrentFrame.mnId > mpCamera->mfFps) && mpMap->isImuInitialized())
-        {
-            // TODO check this situation
-            Frame *pF = new Frame(mCurrentFrame);
-            pF->mpPrevFrame = new Frame(mLastFrame);
-            // Load preintegration
-            pF->mpImuPreintegratedFrame = new IMU::Preintegrated(mCurrentFrame.mpImuPreintegratedFrame);
-        }
-
-        if (mpMap->isImuInitialized())
-        {
-            if (bOK)
-            {
-                if (mCurrentFrame.mnId == (mnLastRelocFrameId + mpCamera->mfFps))
-                {
-                    cout << "RESETING FRAME!!!" << endl;
-                    ResetFrameIMU();
-                }
-                else if (mCurrentFrame.mnId > (mnLastRelocFrameId + 30))
-                    mLastBias = mCurrentFrame.mImuBias;
-            }
-        }
-            
-        if (bOK || mState == RECENTLY_LOST)
-        {
-            // Update motion model
-            if (mLastFrame.HasPose() && mCurrentFrame.HasPose())
-            {
-                Sophus::SE3f LastTwc = mLastFrame.GetPose().inverse();
-                mVelocity = mCurrentFrame.GetPose() * LastTwc;
-            }
-            // Clean VO matches
-            for (int i = 0; i < mCurrentFrame.N; i++)
-            {
-                MapPoint *pMP = mCurrentFrame.mvpMapPoints[i];
-                if (pMP)
-                    if (pMP->Observations() < 1)
-                    {
-                        mCurrentFrame.mvbOutlier[i] = false;
-                        mCurrentFrame.mvpMapPoints[i] = static_cast<MapPoint *>(NULL);
-                    }
-            }
-
-            bool bNeedKF = NeedNewKeyFrame();
-            // Check if we need to insert a new keyframe
-            // if(bNeedKF && bOK)
-            if (bNeedKF && (bOK || (mInsertKFsLost && mState == RECENTLY_LOST)))
-                CreateNewKeyFrame();
-            // We allow points with high innovation (considererd outliers by the Huber Function)
-            // pass to the new keyframe, so that bundle adjustment will finally decide
-            // if they are outliers or not. We don't want next frame to estimate its position
-            // with those points so we discard them in the frame. Only has effect if lastframe is tracked
-            for (int i = 0; i < mCurrentFrame.N; i++)
-            {
-                if (mCurrentFrame.mvpMapPoints[i] && mCurrentFrame.mvbOutlier[i])
-                    mCurrentFrame.mvpMapPoints[i] = static_cast<MapPoint *>(NULL);
-            }
-
-            // Store frame pose information to retrieve the complete camera trajectory afterwards.
-            if (mCurrentFrame.HasPose())
-            {
-                Sophus::SE3f Tcr_ = mCurrentFrame.GetPose() * mCurrentFrame.mpReferenceKF->GetPoseInverse();
-                mlRelativeFramePoses.push_back(Tcr_);
-                mlpReferences.push_back(mCurrentFrame.mpReferenceKF);
-                mlFrameTimes.push_back(mCurrentFrame.mTimeStamp);
-                mlbLost.push_back(mState == LOST);
-            }
-            else
-            {
-                // This can happen if tracking is lost
-                mlRelativeFramePoses.push_back(mlRelativeFramePoses.back());
-                mlpReferences.push_back(mlpReferences.back());
-                mlFrameTimes.push_back(mlFrameTimes.back());
-                mlbLost.push_back(mState == LOST);
-            }
-        }
-
-        // Update drawer
-        MSViewing::get().UpdateFrame(mCurrentFrame);
-        if (mCurrentFrame.HasPose())
-            MSViewing::get().SetCurrentCameraPose(mCurrentFrame.GetPose());
-
+        // track local map
         if (!mCurrentFrame.mpReferenceKF)
             mCurrentFrame.mpReferenceKF = mpReferenceKF;
+        // If we have an initial estimation of the camera pose and matching. Track the local map.
+        if (mState !=LOST && bOK)
+            bOK = TrackLocalMap();
 
-        mLastFrame = Frame(mCurrentFrame);
-    }
+        if (mState !=LOST && bOK)
+        {
+            mTimeStampLost = mCurrentFrame.mTimeStamp;
+            mState = OK;
+        }
+        else if(mpMap->isImuInitialized())
+        {
+            mState = RECENTLY_LOST;
+            cout << "Fail to track local map! IMU only ..." << endl;
+            if(mCurrentFrame.mTimeStamp - mTimeStampLost < 5.)
+            {
+                bOK = true;
+                PredictStateIMU();
+            }else
+            {
+                std::cerr<< "IMU takes too long, reseting current map..."<<std::endl;
+                mState = LOST;
+                std::cerr<< "done" <<std::endl;
+                return;
+            }
+        }
+        else
+        {
+            std::cerr<< "Fail to track local map, reseting current map..." <<std::endl;
+            mState = LOST;
+            std::cerr<< "done" <<std::endl;
+            return;
+        }
+
+        if(mState!= LOST)
+        {
+            if (mpMap->isImuInitialized())
+            {
+                if (bOK)
+                {
+                    if (mCurrentFrame.mnId == (mnLastRelocFrameId + mpCamera->mfFps))
+                    {
+                        cout << "RESETING FRAME!!!" << endl;
+                        ResetFrameIMU();
+                    }
+                    else if (mCurrentFrame.mnId > (mnLastRelocFrameId + 30))
+                        mLastBias = mCurrentFrame.mImuBias;
+                }
+            }
+                
+            if (bOK || mState == RECENTLY_LOST)
+            {
+                // Update motion model
+                if (mLastFrame.HasPose() && mCurrentFrame.HasPose())
+                {
+                    Sophus::SE3f LastTwc = mLastFrame.GetPose().inverse();
+                    mVelocity = mCurrentFrame.GetPose() * LastTwc;
+                }
+                // Clean VO matches
+                for (int i = 0; i < mCurrentFrame.N; i++)
+                {
+                    MapPoint *pMP = mCurrentFrame.mvpMapPoints[i];
+                    if (pMP)
+                        if (pMP->Observations() < 1)
+                        {
+                            mCurrentFrame.mvbOutlier[i] = false;
+                            mCurrentFrame.mvpMapPoints[i] = static_cast<MapPoint *>(NULL);
+                        }
+                }
+
+                bool bNeedKF = NeedNewKeyFrame();
+                // Check if we need to insert a new keyframe
+                // if(bNeedKF && bOK)
+                if (bNeedKF && (bOK || (mInsertKFsLost && mState == RECENTLY_LOST)))
+                    CreateNewKeyFrame();
+                // We allow points with high innovation (considererd outliers by the Huber Function)
+                // pass to the new keyframe, so that bundle adjustment will finally decide
+                // if they are outliers or not. We don't want next frame to estimate its position
+                // with those points so we discard them in the frame. Only has effect if lastframe is tracked
+                for (int i = 0; i < mCurrentFrame.N; i++)
+                {
+                    if (mCurrentFrame.mvpMapPoints[i] && mCurrentFrame.mvbOutlier[i])
+                        mCurrentFrame.mvpMapPoints[i] = static_cast<MapPoint *>(NULL);
+                }
+
+                // Store frame pose information to retrieve the complete camera trajectory afterwards.
+                if (mCurrentFrame.HasPose())
+                {
+                    Sophus::SE3f Tcr_ = mCurrentFrame.GetPose() * mCurrentFrame.mpReferenceKF->GetPoseInverse();
+                    mlRelativeFramePoses.push_back(Tcr_);
+                    mlpReferences.push_back(mCurrentFrame.mpReferenceKF);
+                    mlFrameTimes.push_back(mCurrentFrame.mTimeStamp);
+                    mlbLost.push_back(mState == LOST);
+                }
+                else
+                {
+                    // This can happen if tracking is lost
+                    mlRelativeFramePoses.push_back(mlRelativeFramePoses.back());
+                    mlpReferences.push_back(mlpReferences.back());
+                    mlFrameTimes.push_back(mlFrameTimes.back());
+                    mlbLost.push_back(mState == LOST);
+                }
+            }
+
+            // Update drawer
+            MSViewing::get().UpdateFrame(mCurrentFrame);
+            if (mCurrentFrame.HasPose())
+                MSViewing::get().SetCurrentCameraPose(mCurrentFrame.GetPose());
+
+            if (!mCurrentFrame.mpReferenceKF)
+                mCurrentFrame.mpReferenceKF = mpReferenceKF;
+
+            mLastFrame = Frame(mCurrentFrame);
+        }
     }
     // Reset if the camera get lost soon after initialization
     if (mState == LOST)
@@ -827,8 +852,8 @@ bool MSTracking::TrackLocalMap()
 
 bool MSTracking::NeedNewKeyFrame()
 {
-    while(MSLocalMapping::get().CheckNewKeyFrames())
-        usleep(1e3);
+    if(MSLocalMapping::get().CheckNewKeyFrames() || !MSLocalMapping::get().mbLocalMappingIdle)
+        return false;
 
     if (!mpMap->isImuInitialized())
     {
@@ -857,11 +882,6 @@ bool MSTracking::NeedNewKeyFrame()
 
 void MSTracking::CreateNewKeyFrame()
 {
-    if (MSLocalMapping::get().bInitializing && !mpMap->isImuInitialized())
-        return;
-
-    if (!MSLocalMapping::get().SetNotStop(true))
-        return;
 
     KeyFrame *pNewKF = mCurrentFrame.buildKeyFrame(mpMap); 
 
@@ -879,10 +899,7 @@ void MSTracking::CreateNewKeyFrame()
     }
     mpMap->IncreMap(pNewKF);
 
-    MSLocalMapping::get().SetNotStop(false);
     MSLocalMapping::get().InsertKeyFrame(pNewKF);
-
-    // Reset preintegration from last KF (Create new object)
     mpImuPreintegratedFromLastKF = new IMU::Preintegrated(pNewKF->GetImuBias(), mpImuCalib);
     mpLastKeyFrame = pNewKF;
 }
@@ -912,6 +929,9 @@ void MSTracking::SearchLocalPoints()
         th = 5;
     if (mState == LOST || mState == RECENTLY_LOST) // Lost for less than 1 second
         th = 15;
+
+    if(mbMapUpdated)
+        th = 20;
 
     matcher.ExtendMapMatches(mCurrentFrame, mvpLocalMapPoints, th);
 }
@@ -1333,4 +1353,276 @@ void MSTracking::UpdateFrameIMU(const float s, const IMU::Bias &b, KeyFrame *pCu
 int MSTracking::GetMatchesInliers()
 {
     return mnMatchesInliers;
+}
+
+void MSTracking::InitializeIMU(float priorG, float priorA, bool bFIBA)
+{
+    if(mpMap->KeyFramesInMap()<10)
+        return;
+
+    while(MSLocalMapping::get().CheckNewKeyFrames() || !MSLocalMapping::get().mbLocalMappingIdle)
+    {
+        std::cerr<<MSLocalMapping::get().CheckNewKeyFrames()<<" "<<MSLocalMapping::get().mbLocalMappingIdle<<std::endl;
+        usleep(1000);
+    }
+
+    // Retrieve all keyframe in temporal order
+    list<KeyFrame*> lpKF;
+    KeyFrame* pKF = mpLastKeyFrame;
+    while(pKF->mPrevKF)
+    {
+        lpKF.push_front(pKF);
+        pKF = pKF->mPrevKF;
+    }
+    lpKF.push_front(pKF);
+    vector<KeyFrame*> vpKF(lpKF.begin(),lpKF.end());
+
+    if(vpKF.size()<10)
+        return;
+
+    mFirstTs=vpKF.front()->mTimeStamp;
+    if(mpLastKeyFrame->mTimeStamp-mFirstTs< 2.0)
+        return;
+
+    MSLocalMapping::get().RequestStop();
+    while(!MSLocalMapping::get().isStopped())
+    {
+        usleep(1000);
+    }
+
+    bInitializing = true;
+
+    std::cerr<< " initialize imu"<<std::endl;
+
+    const int N = vpKF.size();
+    IMU::Bias b(0,0,0,0,0,0);
+
+    // Compute and KF velocities mRwg estimation
+    if (!mpMap->isImuInitialized())
+    {
+        Eigen::Matrix3f Rwg;
+        Eigen::Vector3f dirG;
+        dirG.setZero();
+        for(vector<KeyFrame*>::iterator itKF = vpKF.begin(); itKF!=vpKF.end(); itKF++)
+        {
+            if (!(*itKF)->mpImuPreintegrated)
+                continue;
+            if (!(*itKF)->mPrevKF)
+                continue;
+
+            dirG -= (*itKF)->mPrevKF->GetImuRotation() * (*itKF)->mpImuPreintegrated->GetUpdatedDeltaVelocity();
+            Eigen::Vector3f _vel = ((*itKF)->GetImuPosition() - (*itKF)->mPrevKF->GetImuPosition())/(*itKF)->mpImuPreintegrated->dT;
+            (*itKF)->SetVelocity(_vel);
+            (*itKF)->mPrevKF->SetVelocity(_vel);
+        }
+
+        dirG = dirG/dirG.norm();
+        Eigen::Vector3f gI(0.0f, 0.0f, -1.0f);
+        Eigen::Vector3f v = gI.cross(dirG);
+        const float nv = v.norm();
+        const float cosg = gI.dot(dirG);
+        const float ang = acos(cosg);
+        Eigen::Vector3f vzg = v*ang/nv;
+        
+        // Safety check for vzg before calling SO3::exp
+        if (!vzg.allFinite() || nv < 1e-8) {
+            std::cout << "Warning: Invalid rotation vector in Tracking (nv=" << nv << ")" << std::endl;
+            Rwg = Eigen::Matrix3f::Identity();
+        } else {
+            try {
+                Rwg = Sophus::SO3f::exp(vzg).matrix();
+            } catch (const std::exception& e) {
+                std::cout << "Warning: SO3::exp failed in Tracking: " << e.what() << std::endl;
+                Rwg = Eigen::Matrix3f::Identity();
+            }
+        }
+        mRwg = Rwg.cast<double>();
+        mFirstTs = mpLastKeyFrame->mTimeStamp-mFirstTs;
+    }
+    else
+    {
+        mRwg = Eigen::Matrix3d::Identity();
+        mbg = mpLastKeyFrame->GetGyroBias().cast<double>();
+        mba = mpLastKeyFrame->GetAccBias().cast<double>();
+    }
+
+    mScale=1.0;
+
+    Optimizer::InertialOptimization(mpMap, mRwg, mScale, mbg, mba, infoInertial, false, false, priorG, priorA);
+
+    if (mScale<1e-1)
+    {
+        cout << "scale too small" << endl;
+        bInitializing=false;
+        return;
+    }
+
+    // Before this line we are not changing the map
+    {
+        unique_lock<mutex> lock(mpMap->mMutexMapUpdate);
+        if ((fabs(mScale - 1.f) > 0.00001)) {
+            Sophus::SE3f Twg(mRwg.cast<float>().transpose(), Eigen::Vector3f::Zero());
+            mpMap->ApplyScaledRotation(Twg, mScale, true);
+            UpdateFrameIMU(mScale, vpKF[0]->GetImuBias(), mpLastKeyFrame);
+        }
+
+        // Check if initialization OK
+        if (!mpMap->isImuInitialized())
+            for (int i = 0; i < N; i++) {
+                KeyFrame *pKF2 = vpKF[i];
+                pKF2->bImu = true;
+            }
+    }
+
+    UpdateFrameIMU(1.0,vpKF[0]->GetImuBias(),mpLastKeyFrame);
+    if (!mpMap->isImuInitialized())
+    {
+        mpMap->SetImuInitialized();
+        mpLastKeyFrame->bImu = true;
+    }
+
+    if (bFIBA)
+    {
+        if (priorA!=0.f)
+            Optimizer::FullInertialBA(mpMap, 100, mpLastKeyFrame->mnId, NULL, true, priorG, priorA);
+        else
+            Optimizer::FullInertialBA(mpMap, 100, mpLastKeyFrame->mnId, NULL, false);
+    }
+
+    std::cout << "Global Bundle Adjustment finished" << std::endl << "Updating map ..."<< std::endl;
+
+    // Get Map Mutex
+    // unique_lock<mutex> lock(mpMap->mMutexMapUpdate);
+
+    unsigned long GBAid = mpLastKeyFrame->mnId;
+
+    // Correct All keyframes
+    std::vector<KeyFrame*> vpAllKFs = mpMap->GetAllKeyFrames();
+    KeyFrame* pOirKF = mpMap->GetOriginKF();
+    for(KeyFrame* pKF : vpAllKFs)
+    {
+        if(!pKF || pKF->isBad())
+            continue;
+        if(pKF->mnBAGlobalForKF != GBAid)
+        {
+            pKF->mTcwGBA = pKF->GetPose() * pOirKF->GetPoseInverse() * pKF->mTcwGBA;
+            if(pKF->isVelocitySet())
+                pKF->mVwbGBA = pKF->mTcwGBA.so3().inverse() * pKF->GetPose().so3() * pKF->GetVelocity();
+            else
+                std::cerr<< "GBA velocity empty!! "<< pKF->mnId <<std::endl;
+            pKF->mnBAGlobalForKF = GBAid;
+            pKF->mBiasGBA = pKF->GetImuBias();
+        }
+
+        pKF->mTcwBefGBA = pKF->GetPose();
+        pKF->SetPose(pKF->mTcwGBA);
+        if(pKF->bImu)
+        {
+            pKF->mVwbBefGBA = pKF->GetVelocity();
+            pKF->SetVelocity(pKF->mVwbGBA);
+            pKF->SetNewBias(pKF->mBiasGBA);
+        }
+        else
+            cerr << " GBA no inertial!! "<< pKF->mnId<<std::endl;
+    }
+
+    // Correct MapPoints
+    const vector<MapPoint*> vpMPs = mpMap->GetAllMapPoints();
+    for(size_t i=0; i<vpMPs.size(); i++)
+    {
+        MapPoint* pMP = vpMPs[i];
+
+        if(pMP->isBad())
+            continue;
+
+        if(pMP->mnBAGlobalForKF==GBAid)
+        {
+            // If optimized by Global BA, just update
+            pMP->SetWorldPos(pMP->mPosGBA);
+        }
+        else
+        {
+            // Update according to the correction of its reference keyframe
+            KeyFrame* pRefKF = pMP->GetReferenceKeyFrame();
+
+            if(pRefKF->mnBAGlobalForKF!=GBAid)
+                continue;
+
+            // Map to non-corrected camera
+            Eigen::Vector3f Xc = pRefKF->mTcwBefGBA * pMP->GetWorldPos();
+
+            // Backproject using corrected camera
+            pMP->SetWorldPos(pRefKF->GetPoseInverse() * Xc);
+        }
+    }
+    // remove bad colinearity edges
+    vector<MapEdge*> vpMEs = mpMap->GetAllMapEdges();
+    for(MapEdge* pME : vpMEs)
+    {
+        if(!pME || pME->isBad())
+            continue;
+        pME->checkValid();
+    }
+    for(MapPoint* pMP : vpMPs)
+    {
+        if(pMP == nullptr || pMP->isBad())
+            continue;
+        pMP->removeColineOutliers();
+    }
+
+    std::cout<<"Map updated!"<<std::endl;
+
+    mState=OK;
+    bInitializing = false;
+
+    mpMap->InfoMapChange();
+
+    MSLocalMapping::get().Release();
+    return;
+}
+
+void MSTracking::ScaleRefinement()
+{
+    while(MSLocalMapping::get().CheckNewKeyFrames() || !MSLocalMapping::get().mbLocalMappingIdle)
+        usleep(1000);
+
+    // Retrieve all keyframes in temporal order
+    list<KeyFrame*> lpKF;
+    KeyFrame* pKF = mpLastKeyFrame;
+    while(pKF->mPrevKF)
+    {
+        lpKF.push_front(pKF);
+        pKF = pKF->mPrevKF;
+    }
+    lpKF.push_front(pKF);
+    vector<KeyFrame*> vpKF(lpKF.begin(),lpKF.end());
+
+    const int N = vpKF.size();
+
+    mRwg = Eigen::Matrix3d::Identity();
+    mScale=1.0;
+
+    Optimizer::InertialOptimization(mpMap, mRwg, mScale);
+
+    if (mScale<1e-1) // 1e-1
+    {
+        cout << "scale too small" << endl;
+        bInitializing=false;
+        return;
+    }
+    
+    Sophus::SO3d so3wg(mRwg);
+    // Before this line we are not changing the map
+    unique_lock<mutex> lock(mpMap->mMutexMapUpdate);
+    if ((fabs(mScale-1.f)>0.002))
+    {
+        Sophus::SE3f Tgw(mRwg.cast<float>().transpose(),Eigen::Vector3f::Zero());
+        mpMap->ApplyScaledRotation(Tgw,mScale,true);
+        UpdateFrameIMU(mScale,mpLastKeyFrame->GetImuBias(),mpLastKeyFrame);
+    }
+
+    // To perform pose-inertial opt w.r.t. last keyframe
+    mpMap->InfoMapChange();
+
+    return;
 }
