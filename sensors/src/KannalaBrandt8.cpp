@@ -1,7 +1,15 @@
-// Camera model based on https://github.com/UZ-SLAMLab/ORB_SLAM3
-#include "KannalaBrandt8.h"
+/**
+ * @file KannalaBrandt8.cpp
+ * @brief Kannala-Brandt fisheye camera model implementation
+ * @details Based on ORB-SLAM3 camera model implementation
+ */
 
-const float precision = 1e-6f; // Precision for floating point comparisons
+#include "KannalaBrandt8.h"
+#include "TwoViewReconstruction.h"
+
+const float precision = 1e-6f; ///< Precision for floating point comparisons
+
+// ==================== CONSTRUCTOR ====================
 
 KannalaBrandt8::KannalaBrandt8(const std::vector<float> &_vParameters, int width, int height, float fps)
     : GeometricCamera(_vParameters, width, height, fps)
@@ -12,6 +20,8 @@ KannalaBrandt8::KannalaBrandt8(const std::vector<float> &_vParameters, int width
     mpTvr = new TwoViewReconstruction(eigenK);
     InitializeImageBounds();
 }
+
+// ==================== PROJECTION FUNCTIONS ====================
 
 Eigen::Vector2d KannalaBrandt8::project(const Eigen::Vector3d &v3D)
 {
@@ -112,12 +122,16 @@ Eigen::Matrix<double, 2, 3> KannalaBrandt8::projectJac(const Eigen::Vector3d &v3
     return JacGood;
 }
 
+// ==================== SLAM FUNCTIONS ====================
+
 bool KannalaBrandt8::ReconstructWithTwoViews( const std::vector<KeyPointEx> &vKeys1, const std::vector<KeyPointEx> &vKeys2, 
                                 const std::vector<int> &vMatches12, Sophus::SE3f &T21, std::vector<cv::Point3f> &vP3D, 
                                 std::vector<bool> &vbTriangulated)
 {
     return mpTvr->Reconstruct(vKeys1, vKeys2, vMatches12, T21, vP3D, vbTriangulated);
 }
+
+// ==================== CAMERA PARAMETERS ====================
 
 cv::Mat KannalaBrandt8::toK()
 {
@@ -140,7 +154,7 @@ Eigen::Matrix3f KannalaBrandt8::toK_()
 
 int KannalaBrandt8::imWidth()
 {
-    return mnWdith;
+    return mnWidth;
 }
 
 int KannalaBrandt8::imHeight()
@@ -148,12 +162,16 @@ int KannalaBrandt8::imHeight()
     return mnHeight;
 }
 
+// ==================== SLAM FUNCTIONS ====================
+
 bool KannalaBrandt8::epipolarConstrain(const KeyPointEx &kp1, const KeyPointEx &kp2,
                                        const Eigen::Matrix3f &R12, const Eigen::Vector3f &t12)
 {
     Eigen::Vector3f p3D;
     return this->TriangulateMatches(kp1, kp2, R12, t12, p3D) > 0.0001f;
 }
+
+// ==================== TRIANGULATION FUNCTIONS ====================
 
 float KannalaBrandt8::TriangulateMatches(const KeyPointEx &kp1, const KeyPointEx &kp2, const Eigen::Matrix3f &R12, const Eigen::Vector3f &t12, Eigen::Vector3f &p3D)
 {
