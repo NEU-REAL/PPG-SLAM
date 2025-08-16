@@ -184,12 +184,11 @@ endif()
 add_library(Optimizing SHARED
     src/G2oEdge.cpp
     src/G2oVertex.cpp
-    src/Optimizer.cpp
-    # src/OptimizerLBA.cpp
-    # src/OptimizerGBA.cpp
-    # src/OptimizerPose.cpp
-    # src/OptimizerInertial.cpp
-    # src/OptimizerGraph.cpp
+    src/OptimizerLBA.cpp
+    src/OptimizerGBA.cpp
+    src/OptimizerPose.cpp
+    src/OptimizerInertial.cpp
+    src/OptimizerGraph.cpp
 )
 
 # Add G2O include directories

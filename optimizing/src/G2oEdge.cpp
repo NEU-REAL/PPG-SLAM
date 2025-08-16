@@ -6,7 +6,7 @@ void EdgeMono::computeError()
     const g2o::VertexPointXYZ* VPoint = static_cast<const g2o::VertexPointXYZ*>(_vertices[0]);
     const VertexPose* VPose = static_cast<const VertexPose*>(_vertices[1]);
     const Eigen::Vector2d obs(_measurement);
-    _error = obs - VPose->estimate().Project(VPoint->estimate(),cam_idx);
+    _error = obs - VPose->estimate().Project(VPoint->estimate());
 }
 
 void EdgeMono::linearizeOplus()
@@ -14,13 +14,13 @@ void EdgeMono::linearizeOplus()
     const VertexPose* VPose = static_cast<const VertexPose*>(_vertices[1]);
     const g2o::VertexPointXYZ* VPoint = static_cast<const g2o::VertexPointXYZ*>(_vertices[0]);
 
-    const Eigen::Matrix3d &Rcw = VPose->estimate().Rcw[cam_idx];
-    const Eigen::Vector3d &tcw = VPose->estimate().tcw[cam_idx];
+    const Eigen::Matrix3d &Rcw = VPose->estimate().Rcw;
+    const Eigen::Vector3d &tcw = VPose->estimate().tcw;
     const Eigen::Vector3d Xc = Rcw*VPoint->estimate() + tcw;
-    const Eigen::Vector3d Xb = VPose->estimate().Rbc[cam_idx]*Xc+VPose->estimate().tbc[cam_idx];
-    const Eigen::Matrix3d &Rcb = VPose->estimate().Rcb[cam_idx];
+    const Eigen::Vector3d Xb = VPose->estimate().Rbc*Xc+VPose->estimate().tbc;
+    const Eigen::Matrix3d &Rcb = VPose->estimate().Rcb;
 
-    const Eigen::Matrix<double,2,3> proj_jac = VPose->estimate().pCamera[cam_idx]->projectJac(Xc);
+    const Eigen::Matrix<double,2,3> proj_jac = VPose->estimate().pCamera->projectJac(Xc);
     _jacobianOplusXi = -proj_jac * Rcw;
 
     Eigen::Matrix<double,3,6> SE3deriv;
@@ -41,7 +41,7 @@ bool EdgeMono::isDepthPositive()
 {
     const g2o::VertexPointXYZ* VPoint = static_cast<const g2o::VertexPointXYZ*>(_vertices[0]);
     const VertexPose* VPose = static_cast<const VertexPose*>(_vertices[1]);
-    return VPose->estimate().isDepthPositive(VPoint->estimate(),cam_idx);
+    return VPose->estimate().isDepthPositive(VPoint->estimate());
 }
 
 
@@ -67,14 +67,14 @@ void EdgeMonoOnlyPose::computeError()
 {
     const VertexPose* VPose = static_cast<const VertexPose*>(_vertices[0]);
     const Eigen::Vector2d obs(_measurement);
-    _error = obs - VPose->estimate().Project(Xw,cam_idx);
+    _error = obs - VPose->estimate().Project(Xw);
 }
 
 
 bool EdgeMonoOnlyPose::isDepthPositive()
 {
     const VertexPose* VPose = static_cast<const VertexPose*>(_vertices[0]);
-    return VPose->estimate().isDepthPositive(Xw,cam_idx);
+    return VPose->estimate().isDepthPositive(Xw);
 }
 
 Eigen::Matrix<double,6,6> EdgeMonoOnlyPose::GetHessian()
@@ -87,13 +87,13 @@ void EdgeMonoOnlyPose::linearizeOplus()
 {
     const VertexPose* VPose = static_cast<const VertexPose*>(_vertices[0]);
 
-    const Eigen::Matrix3d &Rcw = VPose->estimate().Rcw[cam_idx];
-    const Eigen::Vector3d &tcw = VPose->estimate().tcw[cam_idx];
+    const Eigen::Matrix3d &Rcw = VPose->estimate().Rcw;
+    const Eigen::Vector3d &tcw = VPose->estimate().tcw;
     const Eigen::Vector3d Xc = Rcw*Xw + tcw;
-    const Eigen::Vector3d Xb = VPose->estimate().Rbc[cam_idx]*Xc+VPose->estimate().tbc[cam_idx];
-    const Eigen::Matrix3d &Rcb = VPose->estimate().Rcb[cam_idx];
+    const Eigen::Vector3d Xb = VPose->estimate().Rbc*Xc+VPose->estimate().tbc;
+    const Eigen::Matrix3d &Rcb = VPose->estimate().Rcb;
 
-    Eigen::Matrix<double,2,3> proj_jac = VPose->estimate().pCamera[cam_idx]->projectJac(Xc);
+    Eigen::Matrix<double,2,3> proj_jac = VPose->estimate().pCamera->projectJac(Xc);
 
     Eigen::Matrix<double,3,6> SE3deriv;
     double x = Xb(0);
@@ -571,8 +571,8 @@ void Edge4DoF::computeError()
 {
     const VertexPose4DoF* VPi = static_cast<const VertexPose4DoF*>(_vertices[0]);
     const VertexPose4DoF* VPj = static_cast<const VertexPose4DoF*>(_vertices[1]);
-    _error << LogSO3(VPi->estimate().Rcw[0]*VPj->estimate().Rcw[0].transpose()*dRij.transpose()),
-             VPi->estimate().Rcw[0]*(-VPj->estimate().Rcw[0].transpose()*VPj->estimate().tcw[0])+VPi->estimate().tcw[0] - dtij;
+    _error << LogSO3(VPi->estimate().Rcw*VPj->estimate().Rcw.transpose()*dRij.transpose()),
+             VPi->estimate().Rcw*(-VPj->estimate().Rcw.transpose()*VPj->estimate().tcw)+VPi->estimate().tcw - dtij;
 }
 
 EdgeColine::EdgeColine()

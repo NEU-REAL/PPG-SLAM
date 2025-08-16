@@ -27,7 +27,7 @@ class EdgeMono : public g2o::BaseBinaryEdge<2,Eigen::Vector2d,g2o::VertexPointXY
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-    EdgeMono(int cam_idx_=0): cam_idx(cam_idx_)
+    EdgeMono()
     {}
 
     virtual bool read(std::istream& is){return false;}
@@ -42,9 +42,6 @@ public:
     Eigen::Matrix<double,2,9> GetJacobian();
 
     Eigen::Matrix<double,9,9> GetHessian();
-
-public:
-    const int cam_idx;
 };
 
 class EdgeMonoOnlyPose : public g2o::BaseUnaryEdge<2,Eigen::Vector2d,VertexPose>
@@ -52,7 +49,7 @@ class EdgeMonoOnlyPose : public g2o::BaseUnaryEdge<2,Eigen::Vector2d,VertexPose>
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-    EdgeMonoOnlyPose(const Eigen::Vector3f &Xw_, int cam_idx_=0):Xw(Xw_.cast<double>()), cam_idx(cam_idx_)
+    EdgeMonoOnlyPose(const Eigen::Vector3f &Xw_):Xw(Xw_.cast<double>())
     {}
 
     virtual bool read(std::istream& is){return false;}
@@ -68,7 +65,6 @@ public:
 
 public:
     const Eigen::Vector3d Xw;
-    const int cam_idx;
 };
 
 class EdgeInertial : public g2o::BaseMultiEdge<9,Vector9d>

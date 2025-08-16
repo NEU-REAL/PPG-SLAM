@@ -2,17 +2,18 @@
 #include <complex>
 #include <Eigen/StdVector>
 #include <Eigen/Dense>
-#include "g2o/core/sparse_block_matrix.h"
-#include "g2o/core/block_solver.h"
-#include "g2o/core/optimization_algorithm_levenberg.h"
-#include "g2o/core/optimization_algorithm_gauss_newton.h"
-#include "g2o/core/robust_kernel_impl.h"
-#include "g2o/solvers/eigen/linear_solver_eigen.h"
-#include "g2o/solvers/dense/linear_solver_dense.h"
-#include "g2o/types/sba/types_six_dof_expmap.h"
 #include "G2oEdge.h"
 #include "G2oVertex.h"
 #include<mutex>
+
+#include <g2o/core/block_solver.h>
+#include <g2o/core/optimization_algorithm_levenberg.h>
+#include <g2o/solvers/eigen/linear_solver_eigen.h>
+#include <g2o/types/sba/types_six_dof_expmap.h>
+#include <g2o/core/robust_kernel_impl.h>
+#include <g2o/solvers/dense/linear_solver_dense.h>
+#include <g2o/types/sim3/types_seven_dof_expmap.h>
+
 
 void Optimizer::GlobalBundleAdjustemnt(Map* pMap, int nIterations, bool* pbStopFlag, const unsigned long nLoopKF, const bool bRobust)
 {
@@ -20,12 +21,10 @@ void Optimizer::GlobalBundleAdjustemnt(Map* pMap, int nIterations, bool* pbStopF
     vector<MapPoint*> vpMPs = pMap->GetAllMapPoints();
     vector<MapColine*> vpCLs = pMap->GetAllMapColines();
 
-    std::unique_ptr<g2o::BlockSolverX::LinearSolverType> linearSolver = 
-        std::make_unique<g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>>();
-
-    g2o::OptimizationAlgorithmLevenberg* solver = new g2o::OptimizationAlgorithmLevenberg(
-        std::make_unique<g2o::BlockSolverX>(std::move(linearSolver))
-    );
+    // Setup optimizer
+    auto linear_solver = std::make_unique<g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>>();
+    g2o::OptimizationAlgorithmLevenberg *solver = new g2o::OptimizationAlgorithmLevenberg(
+                                        std::make_unique<g2o::BlockSolverX>(std::move(linear_solver)));
 
     g2o::SparseOptimizer optimizer;
     optimizer.setAlgorithm(solver);
@@ -119,15 +118,7 @@ void Optimizer::GlobalBundleAdjustemnt(Map* pMap, int nIterations, bool* pbStopF
         }
 
         if(nEdges < 2)
-        {
-            // In newer g2o versions, we need to remove all edges connected to this vertex first
-            auto edges = vPoint->edges();
-            for(auto edge : edges)
-            {
-                optimizer.removeEdge(edge);
-            }
             optimizer.removeVertex(vPoint);
-        }
     }
 
     // coline residual
@@ -260,12 +251,9 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const long unsigned int nLoop
     const vector<MapColine*> vpCLs = pMap->GetAllMapColines();
 
     // Setup optimizer
-    std::unique_ptr<g2o::BlockSolverX::LinearSolverType> linearSolver = 
-        std::make_unique<g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>>();
-
-    g2o::OptimizationAlgorithmLevenberg* solver = new g2o::OptimizationAlgorithmLevenberg(
-        std::make_unique<g2o::BlockSolverX>(std::move(linearSolver))
-    );
+    auto linear_solver = std::make_unique<g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>>();
+    g2o::OptimizationAlgorithmLevenberg *solver = new g2o::OptimizationAlgorithmLevenberg(
+                                        std::make_unique<g2o::BlockSolverX>(std::move(linear_solver)));
 
     solver->setUserLambdaInit(1e-5);
 
@@ -443,7 +431,7 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const long unsigned int nLoop
 
             Eigen::Matrix<double,2,1> obs;
             obs << pKFi->mvKeysUn[index].mPos[0], pKFi->mvKeysUn[index].mPos[1];
-            EdgeMono* e = new EdgeMono(0);
+            EdgeMono* e = new EdgeMono();
             g2o::OptimizableGraph::Vertex* VP = optimizer.vertex(pKFi->mnId);
             e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
             e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(VP));
@@ -458,15 +446,7 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const long unsigned int nLoop
                 bAllFixed=false;
         }
         if(bAllFixed)
-        {
-            // In newer g2o versions, we need to remove all edges connected to this vertex first
-            auto edges = vPoint->edges();
-            for(auto edge : edges)
-            {
-                optimizer.removeEdge(edge);
-            }
             optimizer.removeVertex(vPoint);
-        }
     }
 
     // coline residual
@@ -508,12 +488,12 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const long unsigned int nLoop
         VertexPose* VP = static_cast<VertexPose*>(optimizer.vertex(pKFi->mnId));
         if(nLoopId==0)
         {
-            SE3f Tcw(VP->estimate().Rcw[0].cast<float>(), VP->estimate().tcw[0].cast<float>());
+            SE3f Tcw(VP->estimate().Rcw.cast<float>(), VP->estimate().tcw.cast<float>());
             pKFi->SetPose(Tcw);
         }
         else
         {
-            pKFi->mTcwGBA = SE3f(VP->estimate().Rcw[0].cast<float>(),VP->estimate().tcw[0].cast<float>());
+            pKFi->mTcwGBA = SE3f(VP->estimate().Rcw.cast<float>(),VP->estimate().tcw.cast<float>());
             pKFi->mnBAGlobalForKF = nLoopId;
 
         }

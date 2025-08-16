@@ -2,17 +2,123 @@
 #include <complex>
 #include <Eigen/StdVector>
 #include <Eigen/Dense>
-#include "g2o/core/sparse_block_matrix.h"
-#include "g2o/core/block_solver.h"
-#include "g2o/core/optimization_algorithm_levenberg.h"
-#include "g2o/core/optimization_algorithm_gauss_newton.h"
-#include "g2o/core/robust_kernel_impl.h"
-#include "g2o/solvers/eigen/linear_solver_eigen.h"
-#include "g2o/solvers/dense/linear_solver_dense.h"
-#include "g2o/types/sba/types_six_dof_expmap.h"
 #include "G2oEdge.h"
 #include "G2oVertex.h"
 #include<mutex>
+
+#include <g2o/core/block_solver.h>
+#include <g2o/core/optimization_algorithm_levenberg.h>
+#include <g2o/solvers/eigen/linear_solver_eigen.h>
+#include <g2o/types/sba/types_six_dof_expmap.h>
+#include <g2o/core/robust_kernel_impl.h>
+#include <g2o/solvers/dense/linear_solver_dense.h>
+#include <g2o/types/sim3/types_seven_dof_expmap.h>
+
+void Optimizer::InertialOptimization(Map *pMap, Eigen::Matrix3d &Rwg, double &scale)
+{
+    int its = 10;
+    long unsigned int maxKFid = pMap->GetMaxKFid();
+    const vector<KeyFrame*> vpKFs = pMap->GetAllKeyFrames();
+
+    // Setup optimizer
+    auto linear_solver = std::make_unique<g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>>();
+    g2o::OptimizationAlgorithmGaussNewton *solver = new g2o::OptimizationAlgorithmGaussNewton(
+                                        std::make_unique<g2o::BlockSolverX>(std::move(linear_solver)));
+
+    g2o::SparseOptimizer optimizer;
+    optimizer.setAlgorithm(solver);
+
+    // Set KeyFrame vertices (all variables are fixed)
+    for(size_t i=0; i<vpKFs.size(); i++)
+    {
+        KeyFrame* pKFi = vpKFs[i];
+        if(pKFi->mnId>maxKFid)
+            continue;
+        VertexPose * VP = new VertexPose(pKFi, pMap->mpCamera);
+        VP->setId(pKFi->mnId);
+        VP->setFixed(true);
+        optimizer.addVertex(VP);
+
+        VertexVelocity* VV = new VertexVelocity(pKFi);
+        VV->setId(maxKFid+1+(pKFi->mnId));
+        VV->setFixed(true);
+        optimizer.addVertex(VV);
+
+        // Vertex of fixed biases
+        VertexGyroBias* VG = new VertexGyroBias(vpKFs.front());
+        VG->setId(2*(maxKFid+1)+(pKFi->mnId));
+        VG->setFixed(true);
+        optimizer.addVertex(VG);
+        VertexAccBias* VA = new VertexAccBias(vpKFs.front());
+        VA->setId(3*(maxKFid+1)+(pKFi->mnId));
+        VA->setFixed(true);
+        optimizer.addVertex(VA);
+    }
+
+    // Gravity and scale
+    VertexGDir* VGDir = new VertexGDir(Rwg);
+    VGDir->setId(4*(maxKFid+1));
+    VGDir->setFixed(false);
+    optimizer.addVertex(VGDir);
+    VertexScale* VS = new VertexScale(scale);
+    VS->setId(4*(maxKFid+1)+1);
+    VS->setFixed(false);
+    optimizer.addVertex(VS);
+
+    // Graph edges
+    int count_edges = 0;
+    for(size_t i=0;i<vpKFs.size();i++)
+    {
+        KeyFrame* pKFi = vpKFs[i];
+
+        if(pKFi->mPrevKF && pKFi->mnId<=maxKFid)
+        {
+            if(pKFi->isBad() || pKFi->mPrevKF->mnId>maxKFid)
+                continue;
+                
+            g2o::HyperGraph::Vertex* VP1 = optimizer.vertex(pKFi->mPrevKF->mnId);
+            g2o::HyperGraph::Vertex* VV1 = optimizer.vertex((maxKFid+1)+pKFi->mPrevKF->mnId);
+            g2o::HyperGraph::Vertex* VP2 =  optimizer.vertex(pKFi->mnId);
+            g2o::HyperGraph::Vertex* VV2 = optimizer.vertex((maxKFid+1)+pKFi->mnId);
+            g2o::HyperGraph::Vertex* VG = optimizer.vertex(2*(maxKFid+1)+pKFi->mPrevKF->mnId);
+            g2o::HyperGraph::Vertex* VA = optimizer.vertex(3*(maxKFid+1)+pKFi->mPrevKF->mnId);
+            g2o::HyperGraph::Vertex* VGDir = optimizer.vertex(4*(maxKFid+1));
+            g2o::HyperGraph::Vertex* VS = optimizer.vertex(4*(maxKFid+1)+1);
+            if(!VP1 || !VV1 || !VG || !VA || !VP2 || !VV2 || !VGDir || !VS)
+            {
+                std::cerr<<"Error" << to_string(VP1->id()) << ", " << to_string(VV1->id()) << ", "  <<to_string(VG->id())  <<", "  <<to_string(VA->id())  <<", "  <<to_string(VP2->id()) << ", "  <<to_string(VV2->id())  <<", "  <<to_string(VGDir->id())  <<", " <<to_string(VS->id()) <<std::endl;
+                continue;
+            }
+            count_edges++;
+            EdgeInertialGS* ei = new EdgeInertialGS(pKFi->mpImuPreintegrated);
+            ei->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(VP1));
+            ei->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(VV1));
+            ei->setVertex(2, dynamic_cast<g2o::OptimizableGraph::Vertex*>(VG));
+            ei->setVertex(3, dynamic_cast<g2o::OptimizableGraph::Vertex*>(VA));
+            ei->setVertex(4, dynamic_cast<g2o::OptimizableGraph::Vertex*>(VP2));
+            ei->setVertex(5, dynamic_cast<g2o::OptimizableGraph::Vertex*>(VV2));
+            ei->setVertex(6, dynamic_cast<g2o::OptimizableGraph::Vertex*>(VGDir));
+            ei->setVertex(7, dynamic_cast<g2o::OptimizableGraph::Vertex*>(VS));
+            g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+            ei->setRobustKernel(rk);
+            rk->setDelta(1.f);
+            optimizer.addEdge(ei);
+        }
+    }
+
+    // Compute error for different scales
+    optimizer.setVerbose(false);
+    optimizer.initializeOptimization();
+    optimizer.computeActiveErrors();
+    float err = optimizer.activeRobustChi2();
+    optimizer.optimize(its);
+    optimizer.computeActiveErrors();
+    float err_end = optimizer.activeRobustChi2();
+    // Recover optimized data
+    scale = VS->estimate();
+    Rwg = VGDir->estimate().Rwg;
+}
+
 
 void Optimizer::InertialOptimization(Map *pMap, Eigen::Matrix3d &Rwg, double &scale, Eigen::Vector3d &bg, Eigen::Vector3d &ba, Eigen::MatrixXd  &covInertial, bool bFixedVel, bool bGauss, float priorG, float priorA)
 {
@@ -21,12 +127,9 @@ void Optimizer::InertialOptimization(Map *pMap, Eigen::Matrix3d &Rwg, double &sc
     const vector<KeyFrame*> vpKFs = pMap->GetAllKeyFrames();
 
     // Setup optimizer
-    std::unique_ptr<g2o::BlockSolverX::LinearSolverType> linearSolver = 
-        std::make_unique<g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>>();
-
-    g2o::OptimizationAlgorithmLevenberg* solver = new g2o::OptimizationAlgorithmLevenberg(
-        std::make_unique<g2o::BlockSolverX>(std::move(linearSolver))
-    );
+    auto linear_solver = std::make_unique<g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>>();
+    g2o::OptimizationAlgorithmLevenberg *solver = new g2o::OptimizationAlgorithmLevenberg(
+                                        std::make_unique<g2o::BlockSolverX>(std::move(linear_solver)));
 
     if (priorG!=0.f)
         solver->setUserLambdaInit(1e3);
@@ -172,7 +275,7 @@ void Optimizer::InertialOptimization(Map *pMap, Eigen::Matrix3d &Rwg, double &sc
 
     //Keyframes velocities and biases
     const int N = vpKFs.size();
-    for(int i=0; i<N; i++)
+    for(size_t i=0; i<N; i++)
     {
         KeyFrame* pKFi = vpKFs[i];
         if(pKFi->mnId>maxKFid)
@@ -195,113 +298,6 @@ void Optimizer::InertialOptimization(Map *pMap, Eigen::Matrix3d &Rwg, double &sc
     }
 }
 
-void Optimizer::InertialOptimization(Map *pMap, Eigen::Matrix3d &Rwg, double &scale)
-{
-    int its = 10;
-    long unsigned int maxKFid = pMap->GetMaxKFid();
-    const vector<KeyFrame*> vpKFs = pMap->GetAllKeyFrames();
-
-    // Setup optimizer
-    std::unique_ptr<g2o::BlockSolverX::LinearSolverType> linearSolver = 
-        std::make_unique<g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>>();
-
-    g2o::OptimizationAlgorithmGaussNewton* solver = new g2o::OptimizationAlgorithmGaussNewton(
-        std::make_unique<g2o::BlockSolverX>(std::move(linearSolver))
-    );
-
-    g2o::SparseOptimizer optimizer;
-    optimizer.setAlgorithm(solver);
-
-    // Set KeyFrame vertices (all variables are fixed)
-    for(size_t i=0; i<vpKFs.size(); i++)
-    {
-        KeyFrame* pKFi = vpKFs[i];
-        if(pKFi->mnId>maxKFid)
-            continue;
-        VertexPose * VP = new VertexPose(pKFi, pMap->mpCamera);
-        VP->setId(pKFi->mnId);
-        VP->setFixed(true);
-        optimizer.addVertex(VP);
-
-        VertexVelocity* VV = new VertexVelocity(pKFi);
-        VV->setId(maxKFid+1+(pKFi->mnId));
-        VV->setFixed(true);
-        optimizer.addVertex(VV);
-
-        // Vertex of fixed biases
-        VertexGyroBias* VG = new VertexGyroBias(vpKFs.front());
-        VG->setId(2*(maxKFid+1)+(pKFi->mnId));
-        VG->setFixed(true);
-        optimizer.addVertex(VG);
-        VertexAccBias* VA = new VertexAccBias(vpKFs.front());
-        VA->setId(3*(maxKFid+1)+(pKFi->mnId));
-        VA->setFixed(true);
-        optimizer.addVertex(VA);
-    }
-
-    // Gravity and scale
-    VertexGDir* VGDir = new VertexGDir(Rwg);
-    VGDir->setId(4*(maxKFid+1));
-    VGDir->setFixed(false);
-    optimizer.addVertex(VGDir);
-    VertexScale* VS = new VertexScale(scale);
-    VS->setId(4*(maxKFid+1)+1);
-    VS->setFixed(false);
-    optimizer.addVertex(VS);
-
-    // Graph edges
-    int count_edges = 0;
-    for(size_t i=0;i<vpKFs.size();i++)
-    {
-        KeyFrame* pKFi = vpKFs[i];
-
-        if(pKFi->mPrevKF && pKFi->mnId<=maxKFid)
-        {
-            if(pKFi->isBad() || pKFi->mPrevKF->mnId>maxKFid)
-                continue;
-                
-            g2o::HyperGraph::Vertex* VP1 = optimizer.vertex(pKFi->mPrevKF->mnId);
-            g2o::HyperGraph::Vertex* VV1 = optimizer.vertex((maxKFid+1)+pKFi->mPrevKF->mnId);
-            g2o::HyperGraph::Vertex* VP2 =  optimizer.vertex(pKFi->mnId);
-            g2o::HyperGraph::Vertex* VV2 = optimizer.vertex((maxKFid+1)+pKFi->mnId);
-            g2o::HyperGraph::Vertex* VG = optimizer.vertex(2*(maxKFid+1)+pKFi->mPrevKF->mnId);
-            g2o::HyperGraph::Vertex* VA = optimizer.vertex(3*(maxKFid+1)+pKFi->mPrevKF->mnId);
-            g2o::HyperGraph::Vertex* VGDir = optimizer.vertex(4*(maxKFid+1));
-            g2o::HyperGraph::Vertex* VS = optimizer.vertex(4*(maxKFid+1)+1);
-            if(!VP1 || !VV1 || !VG || !VA || !VP2 || !VV2 || !VGDir || !VS)
-            {
-                std::cerr<<"Error" << to_string(VP1->id()) << ", " << to_string(VV1->id()) << ", "  <<to_string(VG->id())  <<", "  <<to_string(VA->id())  <<", "  <<to_string(VP2->id()) << ", "  <<to_string(VV2->id())  <<", "  <<to_string(VGDir->id())  <<", " <<to_string(VS->id()) <<std::endl;
-                continue;
-            }
-            count_edges++;
-            EdgeInertialGS* ei = new EdgeInertialGS(pKFi->mpImuPreintegrated);
-            ei->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(VP1));
-            ei->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(VV1));
-            ei->setVertex(2, dynamic_cast<g2o::OptimizableGraph::Vertex*>(VG));
-            ei->setVertex(3, dynamic_cast<g2o::OptimizableGraph::Vertex*>(VA));
-            ei->setVertex(4, dynamic_cast<g2o::OptimizableGraph::Vertex*>(VP2));
-            ei->setVertex(5, dynamic_cast<g2o::OptimizableGraph::Vertex*>(VV2));
-            ei->setVertex(6, dynamic_cast<g2o::OptimizableGraph::Vertex*>(VGDir));
-            ei->setVertex(7, dynamic_cast<g2o::OptimizableGraph::Vertex*>(VS));
-            g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
-            ei->setRobustKernel(rk);
-            rk->setDelta(1.f);
-            optimizer.addEdge(ei);
-        }
-    }
-
-    // Compute error for different scales
-    optimizer.setVerbose(false);
-    optimizer.initializeOptimization();
-    optimizer.computeActiveErrors();
-    // float err = optimizer.activeRobustChi2();
-    optimizer.optimize(its);
-    optimizer.computeActiveErrors();
-    // float err_end = optimizer.activeRobustChi2();
-    // Recover optimized data
-    scale = VS->estimate();
-    Rwg = VGDir->estimate().Rwg;
-}
 
 Eigen::MatrixXd Optimizer::Marginalize(const Eigen::MatrixXd &H, const int &start, const int &end)
 {

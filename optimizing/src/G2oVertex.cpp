@@ -93,25 +93,14 @@ ImuCamPose::ImuCamPose(KeyFrame *pKF, GeometricCamera* pCam):its(0)
     twb = pKF->GetImuPosition().cast<double>();
     Rwb = pKF->GetImuRotation().cast<double>();
 
-    // Load camera poses
-    int num_cams=1;
-
-    tcw.resize(num_cams);
-    Rcw.resize(num_cams);
-    tcb.resize(num_cams);
-    Rcb.resize(num_cams);
-    Rbc.resize(num_cams);
-    tbc.resize(num_cams);
-    pCamera.resize(num_cams);
-
-    // Left camera
-    tcw[0] = pKF->GetTranslation().cast<double>();
-    Rcw[0] = pKF->GetRotation().cast<double>();
-    tcb[0] = pKF->mpImuCalib->mTcb.translation().cast<double>();
-    Rcb[0] = pKF->mpImuCalib->mTcb.rotationMatrix().cast<double>();
-    Rbc[0] = Rcb[0].transpose();
-    tbc[0] = pKF->mpImuCalib->mTbc.translation().cast<double>();
-    pCamera[0] = pCam;
+    // Load camera pose
+    tcw = pKF->GetTranslation().cast<double>();
+    Rcw = pKF->GetRotation().cast<double>();
+    tcb = pKF->mpImuCalib->mTcb.translation().cast<double>();
+    Rcb = pKF->mpImuCalib->mTcb.rotationMatrix().cast<double>();
+    Rbc = Rcb.transpose();
+    tbc = pKF->mpImuCalib->mTbc.translation().cast<double>();
+    pCamera = pCam;
 
     // For posegraph 4DoF
     Rwb0 = Rwb;
@@ -124,25 +113,14 @@ ImuCamPose::ImuCamPose(Frame *pF, GeometricCamera* pCam):its(0)
     twb = pF->GetImuPosition().cast<double>();
     Rwb = pF->GetImuRotation().cast<double>();
 
-    // Load camera poses
-    int num_cams(1);
-
-    tcw.resize(num_cams);
-    Rcw.resize(num_cams);
-    tcb.resize(num_cams);
-    Rcb.resize(num_cams);
-    Rbc.resize(num_cams);
-    tbc.resize(num_cams);
-    pCamera.resize(num_cams);
-
-    // Left camera
-    tcw[0] = pF->GetPose().translation().cast<double>();
-    Rcw[0] = pF->GetPose().rotationMatrix().cast<double>();
-    tcb[0] = pF->mpImuCalib->mTcb.translation().cast<double>();
-    Rcb[0] = pF->mpImuCalib->mTcb.rotationMatrix().cast<double>();
-    Rbc[0] = Rcb[0].transpose();
-    tbc[0] = pF->mpImuCalib->mTbc.translation().cast<double>();
-    pCamera[0] = pCam;
+    // Load camera pose
+    tcw = pF->GetPose().translation().cast<double>();
+    Rcw = pF->GetPose().rotationMatrix().cast<double>();
+    tcb = pF->mpImuCalib->mTcb.translation().cast<double>();
+    Rcb = pF->mpImuCalib->mTcb.rotationMatrix().cast<double>();
+    Rbc = Rcb.transpose();
+    tbc = pF->mpImuCalib->mTbc.translation().cast<double>();
+    pCamera = pCam;
 
     // For posegraph 4DoF
     Rwb0 = Rwb;
@@ -151,40 +129,32 @@ ImuCamPose::ImuCamPose(Frame *pF, GeometricCamera* pCam):its(0)
 
 ImuCamPose::ImuCamPose(Eigen::Matrix3d &_Rwc, Eigen::Vector3d &_twc, KeyFrame* pKF,  GeometricCamera* pCam): its(0)
 {
-    // This is only for posegrpah, we do not care about multicamera
-    tcw.resize(1);
-    Rcw.resize(1);
-    tcb.resize(1);
-    Rcb.resize(1);
-    Rbc.resize(1);
-    tbc.resize(1);
-    pCamera.resize(1);
-
-    tcb[0] = pKF->mpImuCalib->mTcb.translation().cast<double>();
-    Rcb[0] = pKF->mpImuCalib->mTcb.rotationMatrix().cast<double>();
-    Rbc[0] = Rcb[0].transpose();
-    tbc[0] = pKF->mpImuCalib->mTbc.translation().cast<double>();
-    twb = _Rwc * tcb[0] + _twc;
-    Rwb = _Rwc * Rcb[0];
-    Rcw[0] = _Rwc.transpose();
-    tcw[0] = -Rcw[0] * _twc;
-    pCamera[0] = pCam;
+    // This is only for posegraph, single camera setup
+    tcb = pKF->mpImuCalib->mTcb.translation().cast<double>();
+    Rcb = pKF->mpImuCalib->mTcb.rotationMatrix().cast<double>();
+    Rbc = Rcb.transpose();
+    tbc = pKF->mpImuCalib->mTbc.translation().cast<double>();
+    twb = _Rwc * tcb + _twc;
+    Rwb = _Rwc * Rcb;
+    Rcw = _Rwc.transpose();
+    tcw = -Rcw * _twc;
+    pCamera = pCam;
 
     // For posegraph 4DoF
     Rwb0 = Rwb;
     DR.setIdentity();
 }
 
-Eigen::Vector2d ImuCamPose::Project(const Eigen::Vector3d &Xw, int cam_idx) const
+Eigen::Vector2d ImuCamPose::Project(const Eigen::Vector3d &Xw) const
 {
-    Eigen::Vector3d Xc = Rcw[cam_idx] * Xw + tcw[cam_idx];
+    Eigen::Vector3d Xc = Rcw * Xw + tcw;
 
-    return pCamera[cam_idx]->project(Xc);
+    return pCamera->project(Xc);
 }
 
-bool ImuCamPose::isDepthPositive(const Eigen::Vector3d &Xw, int cam_idx) const
+bool ImuCamPose::isDepthPositive(const Eigen::Vector3d &Xw) const
 {
-    return (Rcw[cam_idx].row(2) * Xw + tcw[cam_idx](2)) > 0.0;
+    return (Rcw.row(2) * Xw + tcw(2)) > 0.0;
 }
 
 void ImuCamPose::Update(const double *pu)
@@ -205,16 +175,12 @@ void ImuCamPose::Update(const double *pu)
         its=0;
     }
 
-    // Update camera poses
+    // Update camera pose
     const Eigen::Matrix3d Rbw = Rwb.transpose();
     const Eigen::Vector3d tbw = -Rbw * twb;
 
-    for(int i=0; i<pCamera.size(); i++)
-    {
-        Rcw[i] = Rcb[i] * Rbw;
-        tcw[i] = Rcb[i] * tbw + tcb[i];
-    }
-
+    Rcw = Rcb * Rbw;
+    tcw = Rcb * tbw + tcb;
 }
 
 void ImuCamPose::UpdateW(const double *pu)
@@ -246,9 +212,6 @@ void ImuCamPose::UpdateW(const double *pu)
     const Eigen::Matrix3d Rbw = Rwb.transpose();
     const Eigen::Vector3d tbw = -Rbw * twb;
 
-    for(int i=0; i<pCamera.size(); i++)
-    {
-        Rcw[i] = Rcb[i] * Rbw;
-        tcw[i] = Rcb[i] * tbw+tcb[i];
-    }
+    Rcw = Rcb * Rbw;
+    tcw = Rcb * tbw + tcb;
 }

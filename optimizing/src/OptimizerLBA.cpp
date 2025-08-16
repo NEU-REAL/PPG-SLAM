@@ -2,17 +2,18 @@
 #include <complex>
 #include <Eigen/StdVector>
 #include <Eigen/Dense>
-#include "g2o/core/sparse_block_matrix.h"
-#include "g2o/core/block_solver.h"
-#include "g2o/core/optimization_algorithm_levenberg.h"
-#include "g2o/core/optimization_algorithm_gauss_newton.h"
-#include "g2o/core/robust_kernel_impl.h"
-#include "g2o/solvers/eigen/linear_solver_eigen.h"
-#include "g2o/solvers/dense/linear_solver_dense.h"
-#include "g2o/types/sba/types_six_dof_expmap.h"
 #include "G2oEdge.h"
 #include "G2oVertex.h"
 #include<mutex>
+
+#include <g2o/core/block_solver.h>
+#include <g2o/core/optimization_algorithm_levenberg.h>
+#include <g2o/solvers/eigen/linear_solver_eigen.h>
+#include <g2o/types/sba/types_six_dof_expmap.h>
+#include <g2o/core/robust_kernel_impl.h>
+#include <g2o/solvers/dense/linear_solver_dense.h>
+#include <g2o/types/sim3/types_seven_dof_expmap.h>
+
 
 void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap, int& num_fixedKF, int& num_OptKF, int& num_MPs, int& num_edges)
 {
@@ -80,12 +81,9 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
         return;
     }
     // Setup optimizer
-    std::unique_ptr<g2o::BlockSolverX::LinearSolverType> linearSolver = 
-        std::make_unique<g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>>();
-
-    g2o::OptimizationAlgorithmLevenberg* solver = new g2o::OptimizationAlgorithmLevenberg(
-        std::make_unique<g2o::BlockSolverX>(std::move(linearSolver))
-    );
+    auto linear_solver = std::make_unique<g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>>();
+    g2o::OptimizationAlgorithmLevenberg *solver = new g2o::OptimizationAlgorithmLevenberg(
+                                        std::make_unique<g2o::BlockSolverX>(std::move(linear_solver)));
 
     solver->setUserLambdaInit(100.0);
     g2o::SparseOptimizer optimizer;
@@ -419,14 +417,12 @@ void Optimizer::LocalInertialBA(KeyFrame *pKF, bool *pbStopFlag, Map *pMap, int&
             break;
     }
 
+    bool bNonFixed = (lFixedKeyFrames.size() == 0);
+
     // Setup optimizer
-
-    std::unique_ptr<g2o::BlockSolverX::LinearSolverType> linearSolver = 
-        std::make_unique<g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>>();
-
-    g2o::OptimizationAlgorithmLevenberg* solver = new g2o::OptimizationAlgorithmLevenberg(
-        std::make_unique<g2o::BlockSolverX>(std::move(linearSolver))
-    );
+    auto linear_solver = std::make_unique<g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>>();
+    g2o::OptimizationAlgorithmLevenberg *solver = new g2o::OptimizationAlgorithmLevenberg(
+                                        std::make_unique<g2o::BlockSolverX>(std::move(linear_solver)));
 
     if(bLarge)
         solver->setUserLambdaInit(1e-2);
@@ -634,7 +630,7 @@ void Optimizer::LocalInertialBA(KeyFrame *pKF, bool *pbStopFlag, Map *pMap, int&
                     kpUn = pKFi->mvKeysUn[index];
                     Eigen::Matrix<double,2,1> obs;
                     obs << kpUn.mPos[0], kpUn.mPos[1];
-                    EdgeMono* e = new EdgeMono(0);
+                    EdgeMono* e = new EdgeMono();
                     e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
                     e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pKFi->mnId)));
                     e->setMeasurement(obs);
@@ -744,7 +740,7 @@ void Optimizer::LocalInertialBA(KeyFrame *pKF, bool *pbStopFlag, Map *pMap, int&
         KeyFrame* pKFi = vpOptimizableKFs[i];
 
         VertexPose* VP = static_cast<VertexPose*>(optimizer.vertex(pKFi->mnId));
-        SE3f Tcw(VP->estimate().Rcw[0].cast<float>(), VP->estimate().tcw[0].cast<float>());
+        SE3f Tcw(VP->estimate().Rcw.cast<float>(), VP->estimate().tcw.cast<float>());
         pKFi->SetPose(Tcw);
         pKFi->mnBALocalForKF=0;
 
@@ -766,7 +762,7 @@ void Optimizer::LocalInertialBA(KeyFrame *pKF, bool *pbStopFlag, Map *pMap, int&
     {
         KeyFrame* pKFi = *it;
         VertexPose* VP = static_cast<VertexPose*>(optimizer.vertex(pKFi->mnId));
-        SE3f Tcw(VP->estimate().Rcw[0].cast<float>(), VP->estimate().tcw[0].cast<float>());
+        SE3f Tcw(VP->estimate().Rcw.cast<float>(), VP->estimate().tcw.cast<float>());
         pKFi->SetPose(Tcw);
         pKFi->mnBALocalForKF=0;
     }

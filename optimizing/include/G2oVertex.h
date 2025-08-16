@@ -66,21 +66,21 @@ public:
 
     void Update(const double *pu); // update in the imu reference
     void UpdateW(const double *pu); // update in the world reference
-    Eigen::Vector2d Project(const Eigen::Vector3d &Xw, int cam_idx=0) const; // Mono
-    bool isDepthPositive(const Eigen::Vector3d &Xw, int cam_idx=0) const;
+    Eigen::Vector2d Project(const Eigen::Vector3d &Xw) const; // Mono
+    bool isDepthPositive(const Eigen::Vector3d &Xw) const;
 
 public:
     // For IMU
     Eigen::Matrix3d Rwb;
     Eigen::Vector3d twb;
 
-    // For set of cameras
-    std::vector<Eigen::Matrix3d> Rcw;
-    std::vector<Eigen::Vector3d> tcw;
-    std::vector<Eigen::Matrix3d> Rcb, Rbc;
-    std::vector<Eigen::Vector3d> tcb, tbc;
+    // For single camera
+    Eigen::Matrix3d Rcw;
+    Eigen::Vector3d tcw;
+    Eigen::Matrix3d Rcb, Rbc;
+    Eigen::Vector3d tcb, tbc;
     double bf;
-    std::vector<GeometricCamera*> pCamera;
+    GeometricCamera* pCamera;
 
     // For posegraph 4DoF
     Eigen::Matrix3d Rwb0;
