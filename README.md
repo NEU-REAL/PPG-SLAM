@@ -28,9 +28,36 @@ LibTorch (CUDA >=12.6), Follow [LibTorch Installation](https://pytorch.org/get-s
 
 Pangolin, Follow [Pangolin Installation](github.com/stevenlovegrove/Pangolin).
 
-g2o (tag = 20230223_git), Follow[G2o Installation](https://github.com/RainerKuemmerle/g2o).
+g2o (tag = 20241228_git), Follow[G2o Installation](https://github.com/RainerKuemmerle/g2o).
 
 ## 3. Build
+
+build Pangolin
+```
+git clone github.com/stevenlovegrove/Pangolin
+cd ~/Pangolin
+mkdir build
+cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j
+sudo make install
+```
+
+build g2o
+```
+git clone --branch 20241228_git --depth 1 https://github.com/RainerKuemmerle/g2o.git
+cd ~/g2o
+mkdir build
+cd build
+cmake -DG2O_USE_LOGGING=OFF -DCMAKE_BUILD_TYPE=Release ..
+make -j
+sudo make install
+```
+
+install LibTorch
+```
+download the libtorch-shared-with-deps-x.x.x%xxx.zip & unzip it
+```
 
 Clone the repository and build with cmake:
 

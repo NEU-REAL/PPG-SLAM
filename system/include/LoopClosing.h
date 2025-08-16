@@ -3,7 +3,7 @@
 #include <thread>
 #include <mutex>
 #include <atomic>
-#include "g2o/types/types_seven_dof_expmap.h"
+#include "g2o/types/sim3/types_seven_dof_expmap.h"
 
 #include "KeyFrame.h"
 #include "LocalMapping.h"

@@ -85,7 +85,7 @@ void MSLocalMapping::Run()
         else if(Stop())
         {
             while(isStopped() && !mbFinishRequested)
-                usleep(3000);
+                usleep(1000);
         }
         ResetIfRequested();
 
@@ -97,7 +97,7 @@ void MSLocalMapping::Run()
             break;
         }
 
-        usleep(3000);
+        usleep(1000);
     }
 }
 
@@ -509,7 +509,7 @@ void MSLocalMapping::RequestReset()
 
     while(1)
     {
-        usleep(3000);
+        usleep(1000);
         unique_lock<mutex> lock2(mMutexReset);
         if(!mbResetRequested)
             break;
@@ -537,7 +537,7 @@ void MSLocalMapping::RequestFinish()
 {
     mbFinishRequested = true;
     while(mbFinishRequested == true)
-        usleep(3000);
+        usleep(1000);
     std::cout << "Localmapping finished."<<std::endl;
 }
 

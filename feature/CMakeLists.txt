@@ -9,4 +9,5 @@ target_link_libraries(Feature
     Sensors
     ${TORCH_LIBRARIES}
     ${OpenCV_LIBS}
+    ${DBoW3_INCLUDE_DIRS}
 )

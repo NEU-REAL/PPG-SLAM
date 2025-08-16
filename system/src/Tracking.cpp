@@ -284,7 +284,7 @@ void MSTracking::Track()
             cout << "end visual inertial BA" << endl;
         }
         // scale refinement
-        if (((mpMap->KeyFramesInMap())<=200) && mpMap->KeyFramesInMap() %10 == 0)
+        if (((mpMap->KeyFramesInMap())<=100) && mpMap->KeyFramesInMap() %20 == 0)
             ScaleRefinement();
     }
 
@@ -1355,11 +1355,8 @@ void MSTracking::InitializeIMU(float priorG, float priorA, bool bFIBA)
     if(mpMap->KeyFramesInMap()<10)
         return;
 
-    while(MSLocalMapping::get().CheckNewKeyFrames() || !MSLocalMapping::get().mbLocalMappingIdle)
-    {
-        std::cerr<<MSLocalMapping::get().CheckNewKeyFrames()<<" "<<MSLocalMapping::get().mbLocalMappingIdle<<std::endl;
-        usleep(1000);
-    }
+    // while(MSLocalMapping::get().CheckNewKeyFrames() || !MSLocalMapping::get().mbLocalMappingIdle)
+    //     usleep(500);
 
     // Retrieve all keyframe in temporal order
     list<KeyFrame*> lpKF;
@@ -1381,9 +1378,7 @@ void MSTracking::InitializeIMU(float priorG, float priorA, bool bFIBA)
 
     MSLocalMapping::get().RequestStop();
     while(!MSLocalMapping::get().isStopped())
-    {
-        usleep(1000);
-    }
+        usleep(500);
 
     bInitializing = true;
 
@@ -1578,8 +1573,8 @@ void MSTracking::InitializeIMU(float priorG, float priorA, bool bFIBA)
 
 void MSTracking::ScaleRefinement()
 {
-    while(MSLocalMapping::get().CheckNewKeyFrames() || !MSLocalMapping::get().mbLocalMappingIdle)
-        usleep(1000);
+    // while(MSLocalMapping::get().CheckNewKeyFrames() || !MSLocalMapping::get().mbLocalMappingIdle)
+    //     usleep(500);
 
     // Retrieve all keyframes in temporal order
     list<KeyFrame*> lpKF;

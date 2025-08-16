@@ -227,7 +227,7 @@ void PPGExtractor::detectKeyPoint()
 	{
 		float u = mat.at<float>(i,0);
 		float v = mat.at<float>(i,1);
-		if(u>=0 && u < mnImWidth && v>=0 && v<mnImHeight)
+		if(u>=1 && u < mnImWidth-1 && v>=1 && v<mnImHeight-1)
 			mvKeyPoints[i].mbOut = false;
 		mvKeyPoints[i].mPosUn << mat.at<float>(i,0),  mat.at<float>(i,1);
 	}

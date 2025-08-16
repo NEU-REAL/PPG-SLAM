@@ -3,7 +3,7 @@
 
 void EdgeMono::computeError()
 {
-    const g2o::VertexSBAPointXYZ* VPoint = static_cast<const g2o::VertexSBAPointXYZ*>(_vertices[0]);
+    const g2o::VertexPointXYZ* VPoint = static_cast<const g2o::VertexPointXYZ*>(_vertices[0]);
     const VertexPose* VPose = static_cast<const VertexPose*>(_vertices[1]);
     const Eigen::Vector2d obs(_measurement);
     _error = obs - VPose->estimate().Project(VPoint->estimate(),cam_idx);
@@ -12,7 +12,7 @@ void EdgeMono::computeError()
 void EdgeMono::linearizeOplus()
 {
     const VertexPose* VPose = static_cast<const VertexPose*>(_vertices[1]);
-    const g2o::VertexSBAPointXYZ* VPoint = static_cast<const g2o::VertexSBAPointXYZ*>(_vertices[0]);
+    const g2o::VertexPointXYZ* VPoint = static_cast<const g2o::VertexPointXYZ*>(_vertices[0]);
 
     const Eigen::Matrix3d &Rcw = VPose->estimate().Rcw[cam_idx];
     const Eigen::Vector3d &tcw = VPose->estimate().tcw[cam_idx];
@@ -32,12 +32,14 @@ void EdgeMono::linearizeOplus()
             -z , 0.0, x, 0.0, 1.0, 0.0,
             y ,  -x , 0.0, 0.0, 0.0, 1.0;
 
-    _jacobianOplusXj = proj_jac * Rcb * SE3deriv; // TODO optimize this product
+    // Use temporary variable to avoid alignment issues
+    Eigen::Matrix<double, 2, 6> temp_xj = proj_jac * Rcb * SE3deriv;
+    _jacobianOplusXj = temp_xj;
 }
 
 bool EdgeMono::isDepthPositive()
 {
-    const g2o::VertexSBAPointXYZ* VPoint = static_cast<const g2o::VertexSBAPointXYZ*>(_vertices[0]);
+    const g2o::VertexPointXYZ* VPoint = static_cast<const g2o::VertexPointXYZ*>(_vertices[0]);
     const VertexPose* VPose = static_cast<const VertexPose*>(_vertices[1]);
     return VPose->estimate().isDepthPositive(VPoint->estimate(),cam_idx);
 }
@@ -100,7 +102,10 @@ void EdgeMonoOnlyPose::linearizeOplus()
     SE3deriv << 0.0, z,   -y, 1.0, 0.0, 0.0,
             -z , 0.0, x, 0.0, 1.0, 0.0,
             y ,  -x , 0.0, 0.0, 0.0, 1.0;
-    _jacobianOplusXi = proj_jac * Rcb * SE3deriv; // symbol different becasue of update mode
+    
+    // Use temporary variable to avoid alignment issues
+    Eigen::Matrix<double, 2, 6> temp_xi = proj_jac * Rcb * SE3deriv;
+    _jacobianOplusXi = temp_xi;
 }
 
 EdgeInertial::EdgeInertial(IMU::Preintegrated *pInt):JRg(pInt->JRg.cast<double>()),
@@ -579,9 +584,9 @@ void EdgeColine::computeError()
 {
     _error.setZero();;
     return;
-    const g2o::VertexSBAPointXYZ* p1 = static_cast<const g2o::VertexSBAPointXYZ*>(_vertices[0]);
-    const g2o::VertexSBAPointXYZ* p2 = static_cast<const g2o::VertexSBAPointXYZ*>(_vertices[1]);
-    const g2o::VertexSBAPointXYZ* p3 = static_cast<const g2o::VertexSBAPointXYZ*>(_vertices[2]);
+    const g2o::VertexPointXYZ* p1 = static_cast<const g2o::VertexPointXYZ*>(_vertices[0]);
+    const g2o::VertexPointXYZ* p2 = static_cast<const g2o::VertexPointXYZ*>(_vertices[1]);
+    const g2o::VertexPointXYZ* p3 = static_cast<const g2o::VertexPointXYZ*>(_vertices[2]);
     Eigen::Vector3d v1 = p2->estimate() - p1->estimate();
     Eigen::Vector3d v2 = p3->estimate() - p2->estimate();
     Eigen::Vector3d v1_norm = v1.normalized();
@@ -596,9 +601,9 @@ void EdgeColine::linearizeOplus()
     _jacobianOplus[2].setZero();
     return;
 
-    const g2o::VertexSBAPointXYZ* p1 = static_cast<const g2o::VertexSBAPointXYZ*>(_vertices[0]);
-    const g2o::VertexSBAPointXYZ* p2 = static_cast<const g2o::VertexSBAPointXYZ*>(_vertices[1]);
-    const g2o::VertexSBAPointXYZ* p3 = static_cast<const g2o::VertexSBAPointXYZ*>(_vertices[2]);
+    const g2o::VertexPointXYZ* p1 = static_cast<const g2o::VertexPointXYZ*>(_vertices[0]);
+    const g2o::VertexPointXYZ* p2 = static_cast<const g2o::VertexPointXYZ*>(_vertices[1]);
+    const g2o::VertexPointXYZ* p3 = static_cast<const g2o::VertexPointXYZ*>(_vertices[2]);
     Eigen::Vector3d v1 = p2->estimate() - p1->estimate();
     Eigen::Vector3d v2 = p3->estimate() - p2->estimate();
 
@@ -631,11 +636,14 @@ void EdgeSE3ProjectXYZOnlyPose::linearizeOplus() {
     double z = xyz_trans[2];
 
     Eigen::Matrix<double,3,6> SE3deriv;
-    SE3deriv << 0.f, z,   -y, 1.f, 0.f, 0.f,
-                    -z , 0.f, x, 0.f, 1.f, 0.f,
-                    y ,  -x , 0.f, 0.f, 0.f, 1.f;
+    SE3deriv << 0.0, z,   -y, 1.0, 0.0, 0.0,
+                    -z , 0.0, x, 0.0, 1.0, 0.0,
+                    y ,  -x , 0.0, 0.0, 0.0, 1.0;
 
-    _jacobianOplusXi = -pCamera->projectJac(xyz_trans) * SE3deriv;
+    // Create a temporary aligned matrix for the result to avoid memory alignment issues
+    Eigen::Matrix<double, 2, 3> proj_jac = pCamera->projectJac(xyz_trans);
+    Eigen::Matrix<double, 2, 6> result = -proj_jac * SE3deriv;
+    _jacobianOplusXi = result;
 }
 
 bool EdgeSE3ProjectXYZOnlyPose::isDepthPositive() 
@@ -644,13 +652,13 @@ bool EdgeSE3ProjectXYZOnlyPose::isDepthPositive()
     return (v1->estimate().map(Xw))(2)>0.0;
 }
 
-EdgeSE3ProjectXYZ::EdgeSE3ProjectXYZ() : BaseBinaryEdge<2, Eigen::Vector2d, g2o::VertexSBAPointXYZ, g2o::VertexSE3Expmap>() 
+EdgeSE3ProjectXYZ::EdgeSE3ProjectXYZ() : BaseBinaryEdge<2, Eigen::Vector2d, g2o::VertexPointXYZ, g2o::VertexSE3Expmap>() 
 {}
 
 void EdgeSE3ProjectXYZ::computeError()
 {
     const g2o::VertexSE3Expmap* v1 = static_cast<const g2o::VertexSE3Expmap*>(_vertices[1]);
-    const g2o::VertexSBAPointXYZ* v2 = static_cast<const g2o::VertexSBAPointXYZ*>(_vertices[0]);
+    const g2o::VertexPointXYZ* v2 = static_cast<const g2o::VertexPointXYZ*>(_vertices[0]);
     Eigen::Vector2d obs(_measurement);
     _error = obs-pCamera->project(v1->estimate().map(v2->estimate()));
 }
@@ -658,14 +666,14 @@ void EdgeSE3ProjectXYZ::computeError()
 bool EdgeSE3ProjectXYZ::isDepthPositive() 
 {
     const g2o::VertexSE3Expmap* v1 = static_cast<const g2o::VertexSE3Expmap*>(_vertices[1]);
-    const g2o::VertexSBAPointXYZ* v2 = static_cast<const g2o::VertexSBAPointXYZ*>(_vertices[0]);
+    const g2o::VertexPointXYZ* v2 = static_cast<const g2o::VertexPointXYZ*>(_vertices[0]);
     return ((v1->estimate().map(v2->estimate()))(2)>0.0);
 }
 
 void EdgeSE3ProjectXYZ::linearizeOplus() {
     g2o::VertexSE3Expmap * vj = static_cast<g2o::VertexSE3Expmap *>(_vertices[1]);
     g2o::SE3Quat T(vj->estimate());
-    g2o::VertexSBAPointXYZ* vi = static_cast<g2o::VertexSBAPointXYZ*>(_vertices[0]);
+    g2o::VertexPointXYZ* vi = static_cast<g2o::VertexPointXYZ*>(_vertices[0]);
     Eigen::Vector3d xyz = vi->estimate();
     Eigen::Vector3d xyz_trans = T.map(xyz);
 
@@ -675,14 +683,18 @@ void EdgeSE3ProjectXYZ::linearizeOplus() {
 
     auto projectJac = -pCamera->projectJac(xyz_trans);
 
-    _jacobianOplusXi =  projectJac * T.rotation().toRotationMatrix();
+    // Use temporary variable to avoid alignment issues
+    Eigen::Matrix<double, 2, 3> temp_xi = projectJac * T.rotation().toRotationMatrix();
+    _jacobianOplusXi = temp_xi;
 
     Eigen::Matrix<double,3,6> SE3deriv;
-    SE3deriv << 0.f, z,   -y, 1.f, 0.f, 0.f,
-            -z , 0.f, x, 0.f, 1.f, 0.f,
-            y ,  -x , 0.f, 0.f, 0.f, 1.f;
+    SE3deriv << 0.0, z,   -y, 1.0, 0.0, 0.0,
+            -z , 0.0, x, 0.0, 1.0, 0.0,
+            y ,  -x , 0.0, 0.0, 0.0, 1.0;
 
-    _jacobianOplusXj = projectJac * SE3deriv;
+    // Use temporary variable to avoid alignment issues  
+    Eigen::Matrix<double, 2, 6> temp_xj = projectJac * SE3deriv;
+    _jacobianOplusXj = temp_xj;
 }
 
 VertexSim3Expmap::VertexSim3Expmap() : BaseVertex<7, g2o::Sim3>()
@@ -692,13 +704,13 @@ VertexSim3Expmap::VertexSim3Expmap() : BaseVertex<7, g2o::Sim3>()
 }
 
 EdgeSim3ProjectXYZ::EdgeSim3ProjectXYZ() :
-        g2o::BaseBinaryEdge<2, Eigen::Vector2d, g2o::VertexSBAPointXYZ, VertexSim3Expmap>()
+        g2o::BaseBinaryEdge<2, Eigen::Vector2d, g2o::VertexPointXYZ, VertexSim3Expmap>()
 {}
 
 void EdgeSim3ProjectXYZ::computeError()
 {
     const VertexSim3Expmap* v1 = static_cast<const VertexSim3Expmap*>(_vertices[1]);
-    const g2o::VertexSBAPointXYZ* v2 = static_cast<const g2o::VertexSBAPointXYZ*>(_vertices[0]);
+    const g2o::VertexPointXYZ* v2 = static_cast<const g2o::VertexPointXYZ*>(_vertices[0]);
 
     Eigen::Vector2d obs(_measurement);
     _error = obs-v1->pCamera1->project(v1->estimate().map(v2->estimate()));
@@ -706,13 +718,13 @@ void EdgeSim3ProjectXYZ::computeError()
 
 
 EdgeInverseSim3ProjectXYZ::EdgeInverseSim3ProjectXYZ() :
-        g2o::BaseBinaryEdge<2, Eigen::Vector2d, g2o::VertexSBAPointXYZ, VertexSim3Expmap>()
+        g2o::BaseBinaryEdge<2, Eigen::Vector2d, g2o::VertexPointXYZ, VertexSim3Expmap>()
 {}
 
 void EdgeInverseSim3ProjectXYZ::computeError()
 {
     const VertexSim3Expmap* v1 = static_cast<const VertexSim3Expmap*>(_vertices[1]);
-    const g2o::VertexSBAPointXYZ* v2 = static_cast<const g2o::VertexSBAPointXYZ*>(_vertices[0]);
+    const g2o::VertexPointXYZ* v2 = static_cast<const g2o::VertexPointXYZ*>(_vertices[0]);
 
     Eigen::Vector2d obs(_measurement);
     _error = obs-v1->pCamera2->project((v1->estimate().inverse().map(v2->estimate())));

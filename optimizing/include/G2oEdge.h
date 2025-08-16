@@ -2,11 +2,11 @@
 
 #include "g2o/core/base_vertex.h"
 #include "g2o/core/base_binary_edge.h"
-#include "g2o/types/types_sba.h"
+#include "g2o/types/sba/types_sba.h"
 #include "g2o/core/base_multi_edge.h"
 #include "g2o/core/base_unary_edge.h"
-#include "g2o/types/types_six_dof_expmap.h"
-#include "g2o/types/sim3.h"
+#include "g2o/types/sba/types_six_dof_expmap.h"
+#include "g2o/types/sim3/sim3.h"
 
 #include<opencv2/core/core.hpp>
 #include <math.h>
@@ -22,7 +22,7 @@ class KeyFrame;
 class Frame;
 class GeometricCamera;
 
-class EdgeMono : public g2o::BaseBinaryEdge<2,Eigen::Vector2d,g2o::VertexSBAPointXYZ,VertexPose>
+class EdgeMono : public g2o::BaseBinaryEdge<2,Eigen::Vector2d,g2o::VertexPointXYZ,VertexPose>
 {
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -340,7 +340,7 @@ class  EdgeSE3ProjectXYZOnlyPose: public  g2o::BaseUnaryEdge<2, Eigen::Vector2d,
         GeometricCamera* pCamera;
     };
 
-class  EdgeSE3ProjectXYZ: public  g2o::BaseBinaryEdge<2, Eigen::Vector2d, g2o::VertexSBAPointXYZ, g2o::VertexSE3Expmap>{
+class  EdgeSE3ProjectXYZ: public  g2o::BaseBinaryEdge<2, Eigen::Vector2d, g2o::VertexPointXYZ, g2o::VertexSE3Expmap>{
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
@@ -359,7 +359,7 @@ public:
     GeometricCamera* pCamera;
 };
 
-class EdgeSim3ProjectXYZ : public  g2o::BaseBinaryEdge<2, Eigen::Vector2d, g2o::VertexSBAPointXYZ, VertexSim3Expmap>
+class EdgeSim3ProjectXYZ : public  g2o::BaseBinaryEdge<2, Eigen::Vector2d, g2o::VertexPointXYZ, VertexSim3Expmap>
 {
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -371,7 +371,7 @@ public:
     // virtual void linearizeOplus();
 };
 
-class EdgeInverseSim3ProjectXYZ : public  g2o::BaseBinaryEdge<2, Eigen::Vector2d,  g2o::VertexSBAPointXYZ, VertexSim3Expmap>
+class EdgeInverseSim3ProjectXYZ : public  g2o::BaseBinaryEdge<2, Eigen::Vector2d,  g2o::VertexPointXYZ, VertexSim3Expmap>
 {
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
