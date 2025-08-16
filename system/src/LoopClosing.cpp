@@ -951,7 +951,7 @@ void MSLoopClosing::RunGlobalBundleAdjustment(Map* pActiveMap, unsigned long nLo
     const bool bImuInit = pActiveMap->isImuInitialized();
 
     if(!bImuInit)
-        Optimizer::GlobalBundleAdjustemnt(pActiveMap,10,&mbStopGBA,nLoopKF,false);
+        Optimizer::GlobalBundleAdjustment(pActiveMap,10,nLoopKF,&mbStopGBA);
     else
         Optimizer::FullInertialBA(pActiveMap,7,nLoopKF,&mbStopGBA);
 

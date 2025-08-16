@@ -43,24 +43,20 @@ void MSLocalMapping::Run()
                 SearchInNeighbors();
             } 
 
-            int num_FixedKF_BA = 0;
-            int num_OptKF_BA = 0;
-            int num_MPs_BA = 0;
-            int num_edges_BA = 0;
             if(mpMap->KeyFramesInMap()>2)
             {
 
                 if(mpMap->isImuInitialized())
                 {
                     bool bLarge = MSTracking::get().GetMatchesInliers()>75;
-                    Optimizer::LocalInertialBA(mpCurrentKeyFrame, &mbAbortBA, mpMap,num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA, bLarge, !mpMap->GetInertialBA());
+                    Optimizer::LocalInertialBA(mpCurrentKeyFrame, &mbAbortBA, mpMap, bLarge, !mpMap->GetInertialBA());
                     
                     float dist = (mpCurrentKeyFrame->mPrevKF->GetCameraCenter() - mpCurrentKeyFrame->GetCameraCenter()).norm() + (mpCurrentKeyFrame->mPrevKF->mPrevKF->GetCameraCenter() - mpCurrentKeyFrame->mPrevKF->GetCameraCenter()).norm();
                     if(dist>0.05)
                         mTinit += mpCurrentKeyFrame->mTimeStamp - mpCurrentKeyFrame->mPrevKF->mTimeStamp;
                 }
                 else
-                    Optimizer::LocalBundleAdjustment(mpCurrentKeyFrame,&mbAbortBA, mpMap,num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA);
+                    Optimizer::LocalBundleAdjustment(mpCurrentKeyFrame,&mbAbortBA, mpMap);
 
                 // Initialize IMU here
                 // if(!mpMap->isImuInitialized())

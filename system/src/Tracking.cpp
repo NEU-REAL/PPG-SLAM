@@ -590,7 +590,7 @@ void MSTracking::CreateInitialMapMonocular()
 
     // Bundle Adjustment
     std::cout<< "New Map created with " << to_string(mpMap->MapPointsInMap()) << " points"<< std::endl;
-    Optimizer::GlobalBundleAdjustemnt(mpMap, 20);
+    Optimizer::GlobalBundleAdjustment(mpMap, 20);
     // Compute scene median depth inline
     float medianDepth = -1.0f;
     if (pKFini->N > 0) {

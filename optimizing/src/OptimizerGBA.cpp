@@ -15,7 +15,7 @@
 #include <g2o/types/sim3/types_seven_dof_expmap.h>
 
 
-void Optimizer::GlobalBundleAdjustemnt(Map* pMap, int nIterations, bool* pbStopFlag, const unsigned long nLoopKF, const bool bRobust)
+void Optimizer::GlobalBundleAdjustment(Map* pMap, int nIterations, const unsigned long nLoopKF, bool* pbStopFlag)
 {
     vector<KeyFrame*> vpKFs = pMap->GetAllKeyFrames();
     vector<MapPoint*> vpMPs = pMap->GetAllMapPoints();
@@ -103,13 +103,11 @@ void Optimizer::GlobalBundleAdjustemnt(Map* pMap, int nIterations, bool* pbStopF
             e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pKF->mnId)));
             e->setMeasurement(obs);
             e->setInformation(Eigen::Matrix2d::Identity());
+            // robust kernel
+            g2o::RobustKernelCauchy* rk = new g2o::RobustKernelCauchy;
+            rk->setDelta(thHuberMono);
+            e->setRobustKernel(rk);
 
-            if(bRobust)
-            {
-                g2o::RobustKernelCauchy* rk = new g2o::RobustKernelCauchy;
-                rk->setDelta(thHuberMono);
-                e->setRobustKernel(rk);
-            }
             e->pCamera = pMap->mpCamera;
             optimizer.addEdge(e);
             vpEdgesMono.push_back(e);
@@ -243,7 +241,7 @@ void Optimizer::GlobalBundleAdjustemnt(Map* pMap, int nIterations, bool* pbStopF
     }
 }
 
-void Optimizer::FullInertialBA(Map *pMap, int its, const unsigned long nLoopKF, bool *pbStopFlag, bool bInit, float priorG, float priorA, Eigen::VectorXd *vSingVal, bool *bHess)
+void Optimizer::FullInertialBA(Map *pMap, int its, const unsigned long nLoopKF, bool *pbStopFlag, bool bInit, float priorG, float priorA)
 {
     long unsigned int maxKFid = pMap->GetMaxKFid();
     const vector<KeyFrame*> vpKFs = pMap->GetAllKeyFrames();
