@@ -243,7 +243,7 @@ void Optimizer::GlobalBundleAdjustemnt(Map* pMap, int nIterations, bool* pbStopF
     }
 }
 
-void Optimizer::FullInertialBA(Map *pMap, int its, const long unsigned int nLoopId, bool *pbStopFlag, bool bInit, float priorG, float priorA, Eigen::VectorXd *vSingVal, bool *bHess)
+void Optimizer::FullInertialBA(Map *pMap, int its, const unsigned long nLoopKF, bool *pbStopFlag, bool bInit, float priorG, float priorA, Eigen::VectorXd *vSingVal, bool *bHess)
 {
     long unsigned int maxKFid = pMap->GetMaxKFid();
     const vector<KeyFrame*> vpKFs = pMap->GetAllKeyFrames();
@@ -486,7 +486,7 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const long unsigned int nLoop
         if(pKFi->mnId>maxKFid)
             continue;
         VertexPose* VP = static_cast<VertexPose*>(optimizer.vertex(pKFi->mnId));
-        if(nLoopId==0)
+        if(nLoopKF==0)
         {
             SE3f Tcw(VP->estimate().Rcw.cast<float>(), VP->estimate().tcw.cast<float>());
             pKFi->SetPose(Tcw);
@@ -494,13 +494,13 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const long unsigned int nLoop
         else
         {
             pKFi->mTcwGBA = SE3f(VP->estimate().Rcw.cast<float>(),VP->estimate().tcw.cast<float>());
-            pKFi->mnBAGlobalForKF = nLoopId;
+            pKFi->mnBAGlobalForKF = nLoopKF;
 
         }
         if(pKFi->bImu)
         {
             VertexVelocity* VV = static_cast<VertexVelocity*>(optimizer.vertex(maxKFid+3*(pKFi->mnId)+1));
-            if(nLoopId==0)
+            if(nLoopKF==0)
                 pKFi->SetVelocity(VV->estimate().cast<float>());
             else
                 pKFi->mVwbGBA = VV->estimate().cast<float>();
@@ -521,7 +521,7 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const long unsigned int nLoop
             Vector6d vb;
             vb << VG->estimate(), VA->estimate();
             IMU::Bias b (vb[3],vb[4],vb[5],vb[0],vb[1],vb[2]);
-            if(nLoopId==0)
+            if(nLoopKF==0)
                 pKFi->SetNewBias(b);
             else
                 pKFi->mBiasGBA = b;
@@ -535,7 +535,7 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const long unsigned int nLoop
         g2o::VertexPointXYZ* vPoint = static_cast<g2o::VertexPointXYZ*>(optimizer.vertex(pMP->mnId+iniMPid+1));
         if(vPoint == nullptr)
             continue;
-        if(nLoopId==0)
+        if(nLoopKF==0)
         {
             pMP->SetWorldPos(vPoint->estimate().cast<float>());
             pMP->UpdateNormalAndDepth();
@@ -543,7 +543,7 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const long unsigned int nLoop
         else
         {
             pMP->mPosGBA = vPoint->estimate().cast<float>();
-            pMP->mnBAGlobalForKF = nLoopId;
+            pMP->mnBAGlobalForKF = nLoopKF;
         }
     }
     // remove bad colinearity edges
