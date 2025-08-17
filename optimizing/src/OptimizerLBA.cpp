@@ -152,7 +152,8 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
     vector<MapPoint*> vpMapPointEdgeMono;
     vpMapPointEdgeMono.reserve((lLocalKeyFrames.size() + lFixedCameras.size()) * lLocalMapPoints.size());
 
-    const float thHuberMono = sqrt(5.991);
+    // Cauchy kernel threshold (more robust to outliers than Huber)
+    const float thCauchyMono = sqrt(5.991);
 
     for (list<MapPoint*>::iterator lit = lLocalMapPoints.begin(), lend = lLocalMapPoints.end(); lit != lend; lit++)
     {
@@ -187,9 +188,10 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
                     e->setMeasurement(obs);
                     e->setInformation(Eigen::Matrix2d::Identity());
                     
-                    g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+                    // Use Cauchy robust kernel for stronger outlier rejection
+                    g2o::RobustKernelCauchy* rk = new g2o::RobustKernelCauchy;
                     e->setRobustKernel(rk);
-                    rk->setDelta(thHuberMono);
+                    rk->setDelta(thCauchyMono);
                     e->pCamera = pMap->mpCamera;
                     
                     optimizer.addEdge(e);
@@ -225,6 +227,12 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
             e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pMP->mnId + maxKFid + 1)));
             e->setVertex(2, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pMPe->mnId + maxKFid + 1)));
             e->setInformation(Eigen::Matrix3d::Identity() * pMC->aveWeight());
+            
+            // Add Huber robust kernel for moderate outlier rejection in colinearity
+            g2o::RobustKernelHuber* rkColine = new g2o::RobustKernelHuber;
+            e->setRobustKernel(rkColine);
+            rkColine->setDelta(sqrt(7.815)); // Chi-squared threshold for 3 DOF (95% confidence)
+            
             optimizer.addEdge(e);
         }
     }
@@ -572,7 +580,7 @@ void Optimizer::LocalInertialBA(KeyFrame *pKF, bool *pbStopFlag, Map *pMap, bool
             // Apply robust kernel for boundary edges or recovery mode
             if (i == N - 1 || bRecInit)
             {
-                // Use robust kernel to avoid accumulating error from fixed variables
+                // Use Huber kernel for IMU constraints (more stable for inertial data)
                 g2o::RobustKernelHuber* rki = new g2o::RobustKernelHuber;
                 vei[i]->setRobustKernel(rki);
                 if (i == N - 1)
@@ -614,8 +622,8 @@ void Optimizer::LocalInertialBA(KeyFrame *pKF, bool *pbStopFlag, Map *pMap, bool
     vector<MapPoint*> vpMapPointEdgeMono;
     vpMapPointEdgeMono.reserve((N + lFixedKeyFrames.size()) * lLocalMapPoints.size());
 
-    // Robust kernel thresholds
-    const float thHuberMono = sqrt(5.991);
+    // Robust kernel thresholds - Cauchy provides stronger outlier rejection
+    const float thCauchyMono = sqrt(5.991);
     const float chi2Mono2 = 5.991;
 
     const unsigned long iniMPid = maxKFid * 5;
@@ -660,10 +668,10 @@ void Optimizer::LocalInertialBA(KeyFrame *pKF, bool *pbStopFlag, Map *pMap, bool
                     e->setMeasurement(obs);
                     e->setInformation(Eigen::Matrix2d::Identity());
                     
-                    // Add robust kernel for outlier rejection
-                    g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+                    // Add Cauchy robust kernel for stronger outlier rejection
+                    g2o::RobustKernelCauchy* rk = new g2o::RobustKernelCauchy;
                     e->setRobustKernel(rk);
-                    rk->setDelta(thHuberMono);
+                    rk->setDelta(thCauchyMono);
                     
                     optimizer.addEdge(e);
                     vpEdgesMono.push_back(e);
@@ -700,6 +708,12 @@ void Optimizer::LocalInertialBA(KeyFrame *pKF, bool *pbStopFlag, Map *pMap, bool
             e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pMP->mnId + iniMPid + 1)));
             e->setVertex(2, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pMPe->mnId + iniMPid + 1)));
             e->setInformation(Eigen::Matrix3d::Identity() * pMC->aveWeight());
+            
+            // Add Huber robust kernel for moderate outlier rejection in line features
+            g2o::RobustKernelHuber* rkColine = new g2o::RobustKernelHuber;
+            e->setRobustKernel(rkColine);
+            rkColine->setDelta(sqrt(7.815)); // Chi-squared threshold for 3 DOF (95% confidence)
+            
             optimizer.addEdge(e);
         }
     }
