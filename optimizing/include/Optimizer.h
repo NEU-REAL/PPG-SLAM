@@ -228,8 +228,7 @@ public:
      */
     static void InertialOptimization(Map* pMap, Eigen::Matrix3d& Rwg, double& scale, 
                                      Eigen::Vector3d& bg, Eigen::Vector3d& ba, 
-                                     Eigen::MatrixXd& covInertial, bool bFixedVel = false, 
-                                     bool bGauss = false, float priorG = 1e2, float priorA = 1e6);
+                                     bool bFixedVel = false, float priorG = 1e2, float priorA = 1e6);
 
     /**
      * @brief Simplified inertial optimization for scale and gravity

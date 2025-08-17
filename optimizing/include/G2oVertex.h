@@ -165,7 +165,6 @@ public:
     Eigen::Matrix3d Rcb, Rbc;  // Rotation between camera and body frames
     Eigen::Vector3d tcb, tbc;  // Translation between camera and body frames
     
-    double bf;                 // Baseline times focal length (for stereo)
     GeometricCamera* pCamera;  // Camera model pointer
 
     // For pose graph 4DoF optimization

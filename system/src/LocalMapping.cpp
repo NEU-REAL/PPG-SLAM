@@ -626,7 +626,7 @@ void MSLocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
 
     mScale=1.0;
 
-    Optimizer::InertialOptimization(mpMap, mRwg, mScale, mbg, mba, infoInertial, false, false, priorG, priorA);
+    Optimizer::InertialOptimization(mpMap, mRwg, mScale, mbg, mba, false, priorG, priorA);
 
     if (mScale<1e-1)
     {

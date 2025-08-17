@@ -24,23 +24,20 @@ void EdgeMono::linearizeOplus()
     const VertexPose* VPose = static_cast<const VertexPose*>(_vertices[1]);
     const g2o::VertexPointXYZ* VPoint = static_cast<const g2o::VertexPointXYZ*>(_vertices[0]);
 
-    const Eigen::Matrix3d &Rcw = VPose->estimate().Rcw;
-    const Eigen::Vector3d &tcw = VPose->estimate().tcw;
+    const auto& pose = VPose->estimate();
+    const Eigen::Matrix3d &Rcw = pose.Rcw;
+    const Eigen::Vector3d &tcw = pose.tcw;
     const Eigen::Vector3d Xc = Rcw*VPoint->estimate() + tcw;
-    const Eigen::Vector3d Xb = VPose->estimate().Rbc*Xc+VPose->estimate().tbc;
-    const Eigen::Matrix3d &Rcb = VPose->estimate().Rcb;
+    const Eigen::Vector3d Xb = pose.Rbc*Xc + pose.tbc;
+    const Eigen::Matrix3d &Rcb = pose.Rcb;
 
-    const Eigen::Matrix<double,2,3> proj_jac = VPose->estimate().pCamera->projectJac(Xc);
+    const Eigen::Matrix<double,2,3> proj_jac = pose.pCamera->projectJac(Xc);
     _jacobianOplusXi = -proj_jac * Rcw;
 
+    // SE(3) derivative matrix using efficient construction
     Eigen::Matrix<double,3,6> SE3deriv;
-    double x = Xb(0);
-    double y = Xb(1);
-    double z = Xb(2);
-
-    SE3deriv << 0.0,  z, -y, 1.0, 0.0, 0.0,
-                -z, 0.0,  x, 0.0, 1.0, 0.0,
-                 y, -x, 0.0, 0.0, 0.0, 1.0;
+    SE3deriv.leftCols<3>() = -Skew(Xb);  // Negative skew for rotation part
+    SE3deriv.rightCols<3>() = Eigen::Matrix3d::Identity();  // Identity for translation part
 
     // Use temporary variable to avoid alignment issues
     Eigen::Matrix<double, 2, 6> temp_xj = proj_jac * Rcb * SE3deriv;
@@ -97,21 +94,19 @@ void EdgeMonoOnlyPose::linearizeOplus()
 {
     const VertexPose* VPose = static_cast<const VertexPose*>(_vertices[0]);
 
-    const Eigen::Matrix3d &Rcw = VPose->estimate().Rcw;
-    const Eigen::Vector3d &tcw = VPose->estimate().tcw;
+    const auto& pose = VPose->estimate();
+    const Eigen::Matrix3d &Rcw = pose.Rcw;
+    const Eigen::Vector3d &tcw = pose.tcw;
     const Eigen::Vector3d Xc = Rcw*Xw + tcw;
-    const Eigen::Vector3d Xb = VPose->estimate().Rbc*Xc+VPose->estimate().tbc;
-    const Eigen::Matrix3d &Rcb = VPose->estimate().Rcb;
+    const Eigen::Vector3d Xb = pose.Rbc*Xc + pose.tbc;
+    const Eigen::Matrix3d &Rcb = pose.Rcb;
 
-    Eigen::Matrix<double,2,3> proj_jac = VPose->estimate().pCamera->projectJac(Xc);
+    Eigen::Matrix<double,2,3> proj_jac = pose.pCamera->projectJac(Xc);
 
+    // SE(3) derivative matrix using efficient construction
     Eigen::Matrix<double,3,6> SE3deriv;
-    double x = Xb(0);
-    double y = Xb(1);
-    double z = Xb(2);
-    SE3deriv << 0.0,  z, -y, 1.0, 0.0, 0.0,
-                -z, 0.0,  x, 0.0, 1.0, 0.0,
-                 y, -x, 0.0, 0.0, 0.0, 1.0;
+    SE3deriv.leftCols<3>() = -Skew(Xb);  // Negative skew for rotation part
+    SE3deriv.rightCols<3>() = Eigen::Matrix3d::Identity();  // Identity for translation part
     
     // Use temporary variable to avoid alignment issues
     Eigen::Matrix<double, 2, 6> temp_xi = proj_jac * Rcb * SE3deriv;
@@ -131,14 +126,10 @@ void EdgeSE3ProjectXYZOnlyPose::linearizeOplus()
     g2o::VertexSE3Expmap * vi = static_cast<g2o::VertexSE3Expmap *>(_vertices[0]);
     Eigen::Vector3d xyz_trans = vi->estimate().map(Xw);
 
-    double x = xyz_trans[0];
-    double y = xyz_trans[1];
-    double z = xyz_trans[2];
-
+    // SE(3) derivative matrix using efficient construction
     Eigen::Matrix<double,3,6> SE3deriv;
-    SE3deriv << 0.0,  z, -y, 1.0, 0.0, 0.0,
-                -z, 0.0,  x, 0.0, 1.0, 0.0,
-                 y, -x, 0.0, 0.0, 0.0, 1.0;
+    SE3deriv.leftCols<3>() = -Skew(xyz_trans);  // Negative skew for rotation part
+    SE3deriv.rightCols<3>() = Eigen::Matrix3d::Identity();  // Identity for translation part
 
     // Create a temporary aligned matrix for the result to avoid memory alignment issues
     Eigen::Matrix<double, 2, 3> proj_jac = pCamera->projectJac(xyz_trans);
@@ -178,20 +169,16 @@ void EdgeSE3ProjectXYZ::linearizeOplus()
     Eigen::Vector3d xyz = vi->estimate();
     Eigen::Vector3d xyz_trans = T.map(xyz);
 
-    double x = xyz_trans[0];
-    double y = xyz_trans[1];
-    double z = xyz_trans[2];
-
-    auto projectJac = -pCamera->projectJac(xyz_trans);
+    const Eigen::Matrix<double, 2, 3> projectJac = -pCamera->projectJac(xyz_trans);
 
     // Use temporary variable to avoid alignment issues
     Eigen::Matrix<double, 2, 3> temp_xi = projectJac * T.rotation().toRotationMatrix();
     _jacobianOplusXi = temp_xi;
 
+    // SE(3) derivative matrix using efficient construction
     Eigen::Matrix<double,3,6> SE3deriv;
-    SE3deriv << 0.0,  z, -y, 1.0, 0.0, 0.0,
-                -z, 0.0,  x, 0.0, 1.0, 0.0,
-                 y, -x, 0.0, 0.0, 0.0, 1.0;
+    SE3deriv.leftCols<3>() = -Skew(xyz_trans);  // Negative skew for rotation part
+    SE3deriv.rightCols<3>() = Eigen::Matrix3d::Identity();  // Identity for translation part
 
     // Use temporary variable to avoid alignment issues  
     Eigen::Matrix<double, 2, 6> temp_xj = projectJac * SE3deriv;
@@ -435,7 +422,7 @@ void EdgeInertialGS::computeError()
     const VertexGDir* VGDir = static_cast<const VertexGDir*>(_vertices[6]);
     const VertexScale* VS = static_cast<const VertexScale*>(_vertices[7]);
     const IMU::Bias b(VA->estimate()[0],VA->estimate()[1],VA->estimate()[2],VG->estimate()[0],VG->estimate()[1],VG->estimate()[2]);
-    g = VGDir->estimate().Rwg*gI;
+    const Eigen::Vector3d g = VGDir->estimate().Rwg * gI;
     const double s = VS->estimate();
     const Eigen::Matrix3d dR = mpInt->GetDeltaRotation(b).cast<double>();
     const Eigen::Vector3d dV = mpInt->GetDeltaVelocity(b).cast<double>();
@@ -461,16 +448,16 @@ void EdgeInertialGS::linearizeOplus()
     const IMU::Bias b(VA->estimate()[0],VA->estimate()[1],VA->estimate()[2],VG->estimate()[0],VG->estimate()[1],VG->estimate()[2]);
     const IMU::Bias db = mpInt->GetDeltaBias(b);
 
-    Eigen::Vector3d dbg;
-    dbg << db.bwx, db.bwy, db.bwz;
+    const Eigen::Vector3d dbg(db.bwx, db.bwy, db.bwz);
 
     const Eigen::Matrix3d Rwb1 = VP1->estimate().Rwb;
     const Eigen::Matrix3d Rbw1 = Rwb1.transpose();
     const Eigen::Matrix3d Rwb2 = VP2->estimate().Rwb;
     const Eigen::Matrix3d Rwg = VGDir->estimate().Rwg;
-    Eigen::MatrixXd Gm = Eigen::MatrixXd::Zero(3,2);
-    Gm(0,1) = -IMU::GRAVITY_VALUE;
-    Gm(1,0) = IMU::GRAVITY_VALUE;
+    Eigen::Matrix<double,3,2> Gm;
+    Gm << 0, -IMU::GRAVITY_VALUE,
+          IMU::GRAVITY_VALUE, 0,
+          0, 0;
     const double s = VS->estimate();
     const Eigen::MatrixXd dGdTheta = Rwg*Gm;
     const Eigen::Matrix3d dR = mpInt->GetDeltaRotation(b).cast<double>();
@@ -734,19 +721,21 @@ void EdgeColine::linearizeOplus()
     Eigen::Vector3d v2 = p3->estimate() - p2->estimate();
 
     // Check for degenerate cases
-    if (v1.norm() < 1e-8 || v2.norm() < 1e-8) {
+    double v1_norm = v1.norm();
+    double v2_norm = v2.norm();
+    if (v1_norm < 1e-8 || v2_norm < 1e-8) {
         _jacobianOplus[0].setZero();
         _jacobianOplus[1].setZero();
         _jacobianOplus[2].setZero();
         return;
     }
 
-    Eigen::Vector3d v1_norm = v1.normalized();
-    Eigen::Vector3d v2_norm = v2.normalized();
+    Eigen::Vector3d v1_normalized = v1 / v1_norm;
+    Eigen::Vector3d v2_normalized = v2 / v2_norm;
    
     Eigen::Matrix3d jaco_r_v1, jaco_r_v2;
-    jaco_r_v1 = -Skew(v2_norm) * (Eigen::Matrix3d::Identity() - v1*v1.transpose()/(v1.transpose()*v1))/v1.norm();
-    jaco_r_v2 =  Skew(v1_norm) * (Eigen::Matrix3d::Identity() - v2*v2.transpose()/(v2.transpose()*v2))/v2.norm();
+    jaco_r_v1 = -Skew(v2_normalized) * (Eigen::Matrix3d::Identity() - v1*v1.transpose()/(v1.squaredNorm()))/v1_norm;
+    jaco_r_v2 =  Skew(v1_normalized) * (Eigen::Matrix3d::Identity() - v2*v2.transpose()/(v2.squaredNorm()))/v2_norm;
     
     _jacobianOplus[0] = -jaco_r_v1;
     _jacobianOplus[1] = jaco_r_v1 - jaco_r_v2;
