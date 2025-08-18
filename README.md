@@ -13,10 +13,11 @@ Different inter-frame feature matching methods and various structured landmarks 
 
 ## 2. Prerequisited
 
-### 2.1 Ubuntu and ROS2
+### 2.1 System
 
-- Ubuntu 22.04
-- ROS-Humble
+- CPU: Intel Core i7-13700
+- GPU: NVIDIA RTX 4070
+- OS: Ubuntu 22.04
 
 ### 2.2 Thirdparties
 
@@ -32,7 +33,7 @@ g2o (tag = 20241228_git), Follow[G2o Installation](https://github.com/RainerKuem
 
 ## 3. Build
 
-build Pangolin
+install Pangolin
 ```
 git clone github.com/stevenlovegrove/Pangolin
 cd ~/Pangolin
@@ -43,7 +44,7 @@ make -j
 sudo make install
 ```
 
-build g2o
+install g2o
 ```
 git clone --branch 20241228_git --depth 1 https://github.com/RainerKuemmerle/g2o.git
 cd ~/g2o
@@ -80,8 +81,15 @@ Working with open access datasets. We provide instructions for [EuRoC MAV](http:
 ./bin/mono_inertial_uma Vocabulary/voc_tum_9x3.gz config/UMA.yaml net <Path to dataset>
 ```
 
+## 5. Run without ROS
 
-## 5. Acknowledgments
+We have provided a version under ROS2, which can be switched by:
+
+```
+git checkout ros2
+```
+
+## 6. Acknowledgments
 
 Thanks for [ORB_SLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3), [AirSLAM](https://github.com/sair-lab/AirSLAM), [SOLD2](https://github.com/cvg/SOLD2), and [SuperPoint](https://github.com/magicleap/SuperPointPretrainedNetwork). 
 
