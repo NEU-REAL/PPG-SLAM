@@ -86,7 +86,7 @@ Working with open access datasets. We provide instructions for [EuRoC MAV](http:
 We have provided a version under ROS2, which can be switched by:
 
 ```
-git checkout ros2
+git checkout ROS2
 ```
 
 ## 6. Acknowledgments
