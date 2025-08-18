@@ -1,0 +1,23 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/home/z/libtorch/include/torch/csrc/api/include",
+                "/home/z/libtorch/include",
+                "/usr/include/eigen3",
+                "${workspaceFolder}/include",
+                "/usr/include/x86_64-linux-gnu/c++/6",
+                "/usr/include/x86_64-linux-gnu/c++/7",
+            ],
+            "defines": [],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c11",
+            "cppStandard": "gnu++14",
+            "intelliSenseMode": "linux-gcc-x64",
+            "configurationProvider": "ms-vscode.cmake-tools"
+        }
+    ],
+    "version": 4
+}

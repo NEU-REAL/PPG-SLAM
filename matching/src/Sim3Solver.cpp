@@ -1,0 +1,568 @@
+/**
+ * @file Sim3Solver.cpp
+ * @brief Implementation of Similarity transformation solver for loop closure
+ */
+
+#include <cstdlib>
+#include <vector>
+#include <cmath>
+#include <opencv2/core/core.hpp>
+
+#include "Sim3Solver.h"
+#include "KeyFrame.h"
+#include "Matcher.h"
+#include "DBoW3/DBoW3.h"
+#include "KannalaBrandt8.h"
+#include "Pinhole.h"
+
+/**
+ * @brief Constructor - Initialize Sim3 solver with keyframe correspondences
+ * @param pKF1 First keyframe (reference)
+ * @param pKF2 Second keyframe (target)
+ * @param pCam Camera model for reprojection
+ * @param vpMatched12 Matched map points from KF1 to KF2
+ * @param bFixScale Whether to fix scale to 1 (stereo/RGB-D case)
+ * @param vpKeyFrameMatchedMP Optional keyframes observing matched points
+ * 
+ * Extracts 3D-3D correspondences and transforms them to camera coordinates
+ * for Sim3 computation. Handles both fixed-scale and free-scale scenarios.
+ */
+Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, GeometricCamera* pCam, 
+                       const std::vector<MapPoint *> &vpMatched12, const bool bFixScale,
+                       std::vector<KeyFrame*> vpKeyFrameMatchedMP)
+    : mnIterations(0), mnBestInliers(0), mbFixScale(bFixScale), mpCamera(pCam)
+{
+    /**
+     * Handle keyframe association for matched points
+     * Default to pKF2 if no specific keyframes provided
+     */
+    bool bDifferentKFs = false;
+    if (vpKeyFrameMatchedMP.empty())
+    {
+        bDifferentKFs = true;
+        vpKeyFrameMatchedMP = std::vector<KeyFrame*>(vpMatched12.size(), pKF2);
+    }
+
+    mpKF1 = pKF1;
+    mpKF2 = pKF2;
+
+    std::vector<MapPoint*> vpKeyFrameMP1 = pKF1->GetMapPointMatches();
+    mN1 = vpMatched12.size();
+
+    // Reserve memory for correspondence data
+    mvpMapPoints1.reserve(mN1);
+    mvpMapPoints2.reserve(mN1);
+    mvpMatches12 = vpMatched12;
+    mvnIndices1.reserve(mN1);
+    mvX3Dc1.reserve(mN1);
+    mvX3Dc2.reserve(mN1);
+
+    // Get camera poses for coordinate transformation
+    Eigen::Matrix3f Rcw1 = pKF1->GetRotation();
+    Eigen::Vector3f tcw1 = pKF1->GetTranslation();
+    Eigen::Matrix3f Rcw2 = pKF2->GetRotation();
+    Eigen::Vector3f tcw2 = pKF2->GetTranslation();
+
+    mvAllIndices.reserve(mN1);
+    size_t idx = 0;
+    KeyFrame* pKFm = pKF2; // Default keyframe for matched points
+
+    /**
+     * Extract valid 3D-3D correspondences
+     * Transform world coordinates to camera coordinates for both keyframes
+     */
+    for (int i1 = 0; i1 < mN1; i1++)
+    {
+        if (vpMatched12[i1])
+        {
+            MapPoint* pMP1 = vpKeyFrameMP1[i1];
+            MapPoint* pMP2 = vpMatched12[i1];
+
+            if(!pMP1)
+                continue;
+
+            if(pMP1->isBad() || pMP2->isBad())
+                continue;
+
+            if(bDifferentKFs)
+                pKFm = vpKeyFrameMatchedMP[i1];
+
+            int indexKF1 = pMP1->GetIndexInKeyFrame(pKF1);
+            int indexKF2 = pMP2->GetIndexInKeyFrame(pKFm);
+
+            if(indexKF1<0 || indexKF2<0)
+                continue;
+
+            mvnMaxError1.push_back(9.210);
+            mvnMaxError2.push_back(9.210);
+
+            mvpMapPoints1.push_back(pMP1);
+            mvpMapPoints2.push_back(pMP2);
+            mvnIndices1.push_back(i1);
+
+            Eigen::Vector3f X3D1w = pMP1->GetWorldPos();
+            mvX3Dc1.push_back(Rcw1*X3D1w+tcw1);
+
+            Eigen::Vector3f X3D2w = pMP2->GetWorldPos();
+            mvX3Dc2.push_back(Rcw2*X3D2w+tcw2);
+
+            mvAllIndices.push_back(idx);
+            idx++;
+        }
+    }
+
+    FromCameraToImage(mvX3Dc1,mvP1im1,mpCamera);
+    FromCameraToImage(mvX3Dc2,mvP2im2,mpCamera);
+
+    SetRansacParameters();
+}
+
+void Sim3Solver::SetRansacParameters(double probability, int minInliers, int maxIterations)
+{
+    mRansacProb = probability;
+    mRansacMinInliers = minInliers;
+    mRansacMaxIts = maxIterations;    
+
+    N = mvpMapPoints1.size(); // number of correspondences
+
+    mvbInliersi.resize(N);
+
+    // Adjust Parameters according to number of correspondences
+    float epsilon = (float)mRansacMinInliers/N;
+
+    // Set RANSAC iterations according to probability, epsilon, and max iterations
+    int nIterations;
+
+    if(mRansacMinInliers==N)
+        nIterations=1;
+    else
+        nIterations = ceil(log(1-mRansacProb)/log(1-pow(epsilon,3)));
+
+    mRansacMaxIts = max(1,min(nIterations,mRansacMaxIts));
+
+    mnIterations = 0;
+}
+
+Eigen::Matrix4f Sim3Solver::iterate(int nIterations, bool &bNoMore, std::vector<bool> &vbInliers, int &nInliers)
+{
+    bNoMore = false;
+    vbInliers = std::vector<bool>(mN1,false);
+    nInliers=0;
+
+    if(N<mRansacMinInliers)
+    {
+        bNoMore = true;
+        return Eigen::Matrix4f::Identity();
+    }
+
+    std::vector<size_t> vAvailableIndices;
+
+    Eigen::Matrix3f P3Dc1i;
+    Eigen::Matrix3f P3Dc2i;
+
+    int nCurrentIterations = 0;
+    while(mnIterations<mRansacMaxIts && nCurrentIterations<nIterations)
+    {
+        nCurrentIterations++;
+        mnIterations++;
+
+        vAvailableIndices = mvAllIndices;
+
+        // Get min set of points
+        for(short i = 0; i < 3; ++i)
+        {
+            int randi = int(((double)rand()/((double)RAND_MAX + 1.0)) * vAvailableIndices.size());
+
+            int idx = vAvailableIndices[randi];
+
+            P3Dc1i.col(i) = mvX3Dc1[idx];
+            P3Dc2i.col(i) = mvX3Dc2[idx];
+
+            vAvailableIndices[randi] = vAvailableIndices.back();
+            vAvailableIndices.pop_back();
+        }
+
+        ComputeSim3(P3Dc1i,P3Dc2i);
+
+        CheckInliers();
+
+        if(mnInliersi>=mnBestInliers)
+        {
+            mvbBestInliers = mvbInliersi;
+            mnBestInliers = mnInliersi;
+            mBestT12 = mT12i;
+            mBestRotation = mR12i;
+            mBestTranslation = mt12i;
+            mBestScale = ms12i;
+
+            if(mnInliersi>mRansacMinInliers)
+            {
+                nInliers = mnInliersi;
+                for(int i=0; i<N; i++)
+                    if(mvbInliersi[i])
+                        vbInliers[mvnIndices1[i]] = true;
+                return mBestT12;
+            }
+        }
+    }
+
+    if(mnIterations>=mRansacMaxIts)
+        bNoMore=true;
+
+    return Eigen::Matrix4f::Identity();
+}
+
+Eigen::Matrix4f Sim3Solver::iterate(int nIterations, bool &bNoMore, std::vector<bool> &vbInliers, int &nInliers, bool &bConverge)
+{
+    bNoMore = false;
+    bConverge = false;
+    vbInliers = std::vector<bool>(mN1,false);
+    nInliers=0;
+
+    if(N<mRansacMinInliers)
+    {
+        bNoMore = true;
+        return Eigen::Matrix4f::Identity();
+    }
+
+    std::vector<size_t> vAvailableIndices;
+
+    Eigen::Matrix3f P3Dc1i;
+    Eigen::Matrix3f P3Dc2i;
+
+    int nCurrentIterations = 0;
+
+    Eigen::Matrix4f bestSim3;
+
+    while(mnIterations<mRansacMaxIts && nCurrentIterations<nIterations)
+    {
+        nCurrentIterations++;
+        mnIterations++;
+
+        vAvailableIndices = mvAllIndices;
+
+        // Get min set of points
+        for(short i = 0; i < 3; ++i)
+        {
+            int randi = int(((double)rand()/((double)RAND_MAX + 1.0)) * vAvailableIndices.size());
+
+            int idx = vAvailableIndices[randi];
+
+            P3Dc1i.col(i) = mvX3Dc1[idx];
+            P3Dc2i.col(i) = mvX3Dc2[idx];
+
+            vAvailableIndices[randi] = vAvailableIndices.back();
+            vAvailableIndices.pop_back();
+        }
+
+        ComputeSim3(P3Dc1i,P3Dc2i);
+
+        CheckInliers();
+
+        if(mnInliersi>=mnBestInliers)
+        {
+            mvbBestInliers = mvbInliersi;
+            mnBestInliers = mnInliersi;
+            mBestT12 = mT12i;
+            mBestRotation = mR12i;
+            mBestTranslation = mt12i;
+            mBestScale = ms12i;
+
+            if(mnInliersi>mRansacMinInliers)
+            {
+                nInliers = mnInliersi;
+                for(int i=0; i<N; i++)
+                    if(mvbInliersi[i])
+                        vbInliers[mvnIndices1[i]] = true;
+                bConverge = true;
+                return mBestT12;
+            }
+            else
+            {
+                bestSim3 = mBestT12;
+            }
+        }
+    }
+
+    if(mnIterations>=mRansacMaxIts)
+        bNoMore=true;
+
+    return bestSim3;
+}
+
+Eigen::Matrix4f Sim3Solver::find(std::vector<bool> &vbInliers12, int &nInliers)
+{
+    bool bFlag;
+    return iterate(mRansacMaxIts,bFlag,vbInliers12,nInliers);
+}
+
+void Sim3Solver::ComputeCentroid(Eigen::Matrix3f &P, Eigen::Matrix3f &Pr, Eigen::Vector3f &C)
+{
+    C = P.rowwise().sum();
+    C = C / P.cols();
+    for(int i=0; i<P.cols(); i++)
+    Pr.col(i) = P.col(i) - C;
+}
+
+
+void Sim3Solver::ComputeSim3(Eigen::Matrix3f &P1, Eigen::Matrix3f &P2)
+{
+    // Custom implementation of:
+    // Horn 1987, Closed-form solution of absolute orientataion using unit quaternions
+
+    // Input validation
+    if (!P1.allFinite() || !P2.allFinite()) {
+        std::cout << "Warning: Invalid input points in ComputeSim3" << std::endl;
+        mR12i = Eigen::Matrix3f::Identity();
+        ms12i = 1.0f;
+        mt12i = Eigen::Vector3f::Zero();
+        
+        mT12i.setIdentity();
+        mT21i.setIdentity();
+        return;
+    }
+
+    // Step 1: Centroid and relative coordinates
+
+    Eigen::Matrix3f Pr1; // Relative coordinates to centroid (set 1)
+    Eigen::Matrix3f Pr2; // Relative coordinates to centroid (set 2)
+    Eigen::Vector3f O1; // Centroid of P1
+    Eigen::Vector3f O2; // Centroid of P2
+
+    ComputeCentroid(P1,Pr1,O1);
+    ComputeCentroid(P2,Pr2,O2);
+
+    // Validate centroids
+    if (!O1.allFinite() || !O2.allFinite() || !Pr1.allFinite() || !Pr2.allFinite()) {
+        std::cout << "Warning: Invalid centroids or relative coordinates in ComputeSim3" << std::endl;
+        mR12i = Eigen::Matrix3f::Identity();
+        ms12i = 1.0f;
+        mt12i = Eigen::Vector3f::Zero();
+        
+        mT12i.setIdentity();
+        mT21i.setIdentity();
+        return;
+    }
+
+    // Step 2: Compute M matrix
+
+    Eigen::Matrix3f M = Pr2 * Pr1.transpose();
+
+    // Validate M matrix
+    if (!M.allFinite()) {
+        std::cout << "Warning: Invalid M matrix in ComputeSim3" << std::endl;
+        mR12i = Eigen::Matrix3f::Identity();
+        ms12i = 1.0f;
+        mt12i = Eigen::Vector3f::Zero();
+        
+        mT12i.setIdentity();
+        mT21i.setIdentity();
+        return;
+    }
+
+    // Step 3: Compute N matrix
+    double N11, N12, N13, N14, N22, N23, N24, N33, N34, N44;
+
+    Eigen::Matrix4f N;
+
+    N11 = M(0,0)+M(1,1)+M(2,2);
+    N12 = M(1,2)-M(2,1);
+    N13 = M(2,0)-M(0,2);
+    N14 = M(0,1)-M(1,0);
+    N22 = M(0,0)-M(1,1)-M(2,2);
+    N23 = M(0,1)+M(1,0);
+    N24 = M(2,0)+M(0,2);
+    N33 = -M(0,0)+M(1,1)-M(2,2);
+    N34 = M(1,2)+M(2,1);
+    N44 = -M(0,0)-M(1,1)+M(2,2);
+
+    N << N11, N12, N13, N14,
+         N12, N22, N23, N24,
+         N13, N23, N33, N34,
+         N14, N24, N34, N44;
+
+
+    // Step 4: Eigenvector of the highest eigenvalue
+    Eigen::EigenSolver<Eigen::Matrix4f> eigSolver;
+    eigSolver.compute(N);
+
+    Eigen::Vector4f eval = eigSolver.eigenvalues().real();
+    Eigen::Matrix4f evec = eigSolver.eigenvectors().real(); //evec[0] is the quaternion of the desired rotation
+
+    // Check for valid eigenvalues and eigenvectors
+    if (!eval.allFinite() || !evec.allFinite()) {
+        std::cout << "Warning: Invalid eigenvalues or eigenvectors detected in Sim3 computation" << std::endl;
+        mR12i = Eigen::Matrix3f::Identity();
+        ms12i = 1.0f;
+        mt12i = Eigen::Vector3f::Zero();
+        
+        mT12i.setIdentity();
+        mT21i.setIdentity();
+        return;
+    }
+
+    int maxIndex; // should be zero
+    eval.maxCoeff(&maxIndex);
+
+    Eigen::Vector3f vec = evec.block<3,1>(1,maxIndex); //extract imaginary part of the quaternion (sin*axis)
+
+    // Check for valid vector components
+    if (!vec.allFinite()) {
+        std::cout << "Warning: Invalid eigenvector detected in Sim3 computation" << std::endl;
+        mR12i = Eigen::Matrix3f::Identity();
+        ms12i = 1.0f;
+        mt12i = Eigen::Vector3f::Zero();
+        
+        mT12i.setIdentity();
+        mT21i.setIdentity();
+        return;
+    }
+
+    // Rotation angle. sin is the norm of the imaginary part, cos is the real part
+    double vec_norm = vec.norm();
+    double real_part = evec(0,maxIndex);
+    
+    // Check for valid norm and real part
+    if (vec_norm < 1e-8 || !std::isfinite(real_part)) {
+        std::cout << "Warning: Degenerate quaternion in Sim3 computation (norm=" << vec_norm << ", real=" << real_part << ")" << std::endl;
+        mR12i = Eigen::Matrix3f::Identity();
+    } else {
+        double ang = atan2(vec_norm, real_part);
+        
+        // Check for valid angle
+        if (!std::isfinite(ang)) {
+            std::cout << "Warning: Invalid rotation angle in Sim3 computation" << std::endl;
+            mR12i = Eigen::Matrix3f::Identity();
+        } else {
+            vec = 2*ang*vec/vec_norm; //Angle-axis representation. quaternion angle is the half
+            
+            // Additional safety check before calling SO3f::exp
+            if (!vec.allFinite()) {
+                std::cout << "Warning: Invalid rotation vector before SO3::exp" << std::endl;
+                mR12i = Eigen::Matrix3f::Identity();
+            } else {
+                try {
+                    mR12i = SO3f::exp(vec).matrix();
+                } catch (const std::exception& e) {
+                    std::cout << "Warning: SO3::exp failed: " << e.what() << std::endl;
+                    mR12i = Eigen::Matrix3f::Identity();
+                }
+            }
+        }
+    }
+
+    // Step 5: Rotate set 2
+    Eigen::Matrix3f P3 = mR12i*Pr2;
+
+    // Step 6: Scale
+
+    if(!mbFixScale)
+    {
+        double nom = (Pr1.array() * P3.array()).sum();
+        Eigen::Array<float,3,3> aux_P3;
+        aux_P3 = P3.array() * P3.array();
+        double den = aux_P3.sum();
+
+        ms12i = nom/den;
+    }
+    else
+        ms12i = 1.0f;
+
+    // Step 7: Translation
+    mt12i = O1 - ms12i * mR12i * O2;
+
+    // Step 8: Transformation
+
+    // Step 8.1 T12
+    mT12i.setIdentity();
+
+    Eigen::Matrix3f sR = ms12i*mR12i;
+    mT12i.block<3,3>(0,0) = sR;
+    mT12i.block<3,1>(0,3) = mt12i;
+
+
+    // Step 8.2 T21
+    mT21i.setIdentity();
+    Eigen::Matrix3f sRinv = (1.0/ms12i)*mR12i.transpose();
+
+    // sRinv.copyTo(mT21i.rowRange(0,3).colRange(0,3));
+    mT21i.block<3,3>(0,0) = sRinv;
+
+    Eigen::Vector3f tinv = -sRinv * mt12i;
+    mT21i.block<3,1>(0,3) = tinv;
+}
+
+
+void Sim3Solver::CheckInliers()
+{
+    std::vector<Eigen::Vector2f> vP1im2, vP2im1;
+    Project(mvX3Dc2,vP2im1,mT12i,mpCamera);
+    Project(mvX3Dc1,vP1im2,mT21i,mpCamera);
+
+    mnInliersi=0;
+
+    for(size_t i=0; i<mvP1im1.size(); i++)
+    {
+        Eigen::Vector2f dist1 = mvP1im1[i] - vP2im1[i];
+        Eigen::Vector2f dist2 = vP1im2[i] - mvP2im2[i];
+
+        const float err1 = dist1.dot(dist1);
+        const float err2 = dist2.dot(dist2);
+
+        if(err1<mvnMaxError1[i] && err2<mvnMaxError2[i])
+        {
+            mvbInliersi[i]=true;
+            mnInliersi++;
+        }
+        else
+            mvbInliersi[i]=false;
+    }
+}
+
+Eigen::Matrix4f Sim3Solver::GetEstimatedTransformation()
+{
+    return mBestT12;
+}
+
+Eigen::Matrix3f Sim3Solver::GetEstimatedRotation()
+{
+    return mBestRotation;
+}
+
+Eigen::Vector3f Sim3Solver::GetEstimatedTranslation()
+{
+    return mBestTranslation;
+}
+
+float Sim3Solver::GetEstimatedScale()
+{
+    return mBestScale;
+}
+
+void Sim3Solver::Project(const std::vector<Eigen::Vector3f> &vP3Dw, std::vector<Eigen::Vector2f> &vP2D, Eigen::Matrix4f Tcw, GeometricCamera* pCamera)
+{
+    Eigen::Matrix3f Rcw = Tcw.block<3,3>(0,0);
+    Eigen::Vector3f tcw = Tcw.block<3,1>(0,3);
+
+    vP2D.clear();
+    vP2D.reserve(vP3Dw.size());
+
+    for(size_t i=0, iend=vP3Dw.size(); i<iend; i++)
+    {
+        Eigen::Vector3f P3Dc = Rcw*vP3Dw[i]+tcw;
+        Eigen::Vector2f pt2D = pCamera->project(P3Dc);
+        vP2D.push_back(pt2D);
+    }
+}
+
+void Sim3Solver::FromCameraToImage(const std::vector<Eigen::Vector3f> &vP3Dc, std::vector<Eigen::Vector2f> &vP2D, GeometricCamera* pCamera)
+{
+    vP2D.clear();
+    vP2D.reserve(vP3Dc.size());
+
+    for(size_t i=0, iend=vP3Dc.size(); i<iend; i++)
+    {
+        Eigen::Vector2f pt2D = pCamera->project(vP3Dc[i]);
+        vP2D.push_back(pt2D);
+    }
+}
