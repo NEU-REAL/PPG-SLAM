@@ -1,21 +1,33 @@
+//=============================================================================
+// EuRoC Dataset Publisher for PPG-SLAM
+//=============================================================================
+// This file implements a ROS2 node that publishes EuRoC dataset images and IMU data
+// in real-time simulation for PPG-SLAM testing.
+//=============================================================================
+
 #include <mutex>
 #include <memory>
 #include <iostream>
 #include <chrono>
+#include <fstream>
+#include <vector>
+#include <string>
+
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp/timer.hpp>
 #include <std_msgs/msg/header.hpp>
 #include <builtin_interfaces/msg/time.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/image.hpp>
+
 #include <opencv2/core/core.hpp>
 #include <opencv2/opencv.hpp>
 #include <cv_bridge/cv_bridge.h>
-#include <fstream>
 
 using namespace std;
 using namespace std::chrono_literals;
 
+// Global data containers for EuRoC dataset
 vector<string> vImagePath;
 vector<double> vImageTimeStamp;
 vector<cv::Point3f> vImuAcc;
@@ -23,139 +35,275 @@ vector<cv::Point3f> vImuGyr;
 vector<double> vImuTimestamp;
 
 
-class Talker : public rclcpp::Node
+/**
+ * @brief EuRoC Dataset Publisher Node
+ * 
+ * Publishes EuRoC dataset images and IMU data with synchronized timing
+ * to simulate real-time sensor data for PPG-SLAM testing.
+ */
+class EuRoCPublisher : public rclcpp::Node
 {
 public:
-    Talker() : Node("euroc_publisher")
+    EuRoCPublisher() : Node("euroc_publisher")
     {
-        // 创建发布者，发布 std_msgs::msg::String 类型的消息到 'topic' 话题，队列大小为 10
-        imu_pub = this->create_publisher<sensor_msgs::msg::Imu>("/ppg_slam/imu_raw", 1000);
-        image_pub = this->create_publisher<sensor_msgs::msg::Image>("/ppg_slam/image_raw", 100);
-        // 创建定时器，每 500 毫秒触发一次，调用 timer_callback 函数
-        timer_imu = this->create_wall_timer(1ms, std::bind(&Talker::timer_callback, this));
+        // Create publishers for IMU and image data
+        imu_pub_ = this->create_publisher<sensor_msgs::msg::Imu>("/ppg_slam/imu_raw", 1000);
+        image_pub_ = this->create_publisher<sensor_msgs::msg::Image>("/ppg_slam/image_raw", 100);
+        
+        // Create timer for synchronized data publishing
+        timer_ = this->create_wall_timer(1ms, std::bind(&EuRoCPublisher::timerCallback, this));
+        
+        RCLCPP_INFO(this->get_logger(), "EuRoC Publisher initialized");
     }
-private:
-    void timer_callback()
-    {
-        if(count_imu == 0 && count_image == 0)
-        {
-            size_imu = vImuTimestamp.size();
-            size_img = vImageTimeStamp.size();
-            Tini = std::chrono::high_resolution_clock::now();
-            startTime = vImuTimestamp[0] < vImageTimeStamp[0] ? vImuTimestamp[0] : vImageTimeStamp[0];
 
+private:
+    /**
+     * @brief Timer callback for publishing sensor data
+     * 
+     * Publishes IMU and image data based on their timestamps to maintain
+     * temporal synchronization with the original dataset timing.
+     */
+    void timerCallback()
+    {
+        // Initialize timing on first call
+        if (count_imu_ == 0 && count_image_ == 0) {
+            initializeTiming();
         }
-        double dt = std::chrono::duration_cast<std::chrono::duration<double>>(
-                    std::chrono::high_resolution_clock::now() - Tini).count();
-        while(vImuTimestamp[count_imu] - startTime < dt && count_imu <size_imu)
-        {
-            sensor_msgs::msg::Imu imu_msg;
-            imu_msg.linear_acceleration.x = vImuAcc[count_imu].x;
-            imu_msg.linear_acceleration.y = vImuAcc[count_imu].y;
-            imu_msg.linear_acceleration.z = vImuAcc[count_imu].z;
-            imu_msg.angular_velocity.x = vImuGyr[count_imu].x;
-            imu_msg.angular_velocity.y = vImuGyr[count_imu].y;
-            imu_msg.angular_velocity.z = vImuGyr[count_imu].z;
-            imu_msg.header.frame_id = "imu";
-            imu_msg.header.stamp = sec2stamp(vImuTimestamp[count_imu]);
-            count_imu++;
-            imu_pub->publish(imu_msg);
+
+        // Calculate elapsed time since start
+        double elapsed_time = std::chrono::duration_cast<std::chrono::duration<double>>(
+            std::chrono::high_resolution_clock::now() - start_time_).count();
+
+        // Publish IMU data based on timing
+        publishImuData(elapsed_time);
+        
+        // Publish image data based on timing
+        publishImageData(elapsed_time);
+
+        // Check if publishing is complete
+        if (count_image_ >= size_img_ - 1) {
+            RCLCPP_INFO(this->get_logger(), "Dataset publishing completed");
         }
-        while(vImageTimeStamp[count_image] - startTime < dt && count_image <size_img)
-        {
-            std_msgs::msg::Header hd;
-            hd.frame_id = "image";
-            hd.stamp = sec2stamp(vImageTimeStamp[count_image]);
-            cv::Mat img = cv::imread(vImagePath[count_image], 0);
-            auto image_msg = cv_bridge::CvImage(hd,"mono8",img).toImageMsg();
-            image_pub->publish(*image_msg);
-            count_image++;
-            std::cout<<" image: "<<count_image<<std::endl;
-        }
-        if(count_image == size_img -1)
-            std::cerr<<" done."<<std::endl;
     }
+
+    /**
+     * @brief Initialize timing variables
+     */
+    void initializeTiming()
+    {
+        size_imu_ = vImuTimestamp.size();
+        size_img_ = vImageTimeStamp.size();
+        start_time_ = std::chrono::high_resolution_clock::now();
+        
+        // Find the earliest timestamp to use as reference
+        dataset_start_time_ = (vImuTimestamp[0] < vImageTimeStamp[0]) ? 
+                              vImuTimestamp[0] : vImageTimeStamp[0];
+        
+        RCLCPP_INFO(this->get_logger(), "Publishing %zu IMU samples and %zu images", 
+                    size_imu_, size_img_);
+    }
+
+    /**
+     * @brief Publish IMU data based on elapsed time
+     * @param elapsed_time Current elapsed time since start
+     */
+    void publishImuData(double elapsed_time)
+    {
+        while (count_imu_ < size_imu_ && 
+               (vImuTimestamp[count_imu_] - dataset_start_time_) < elapsed_time) {
+            
+            sensor_msgs::msg::Imu imu_msg;
+            
+            // Set acceleration data
+            imu_msg.linear_acceleration.x = vImuAcc[count_imu_].x;
+            imu_msg.linear_acceleration.y = vImuAcc[count_imu_].y;
+            imu_msg.linear_acceleration.z = vImuAcc[count_imu_].z;
+            
+            // Set angular velocity data
+            imu_msg.angular_velocity.x = vImuGyr[count_imu_].x;
+            imu_msg.angular_velocity.y = vImuGyr[count_imu_].y;
+            imu_msg.angular_velocity.z = vImuGyr[count_imu_].z;
+            
+            // Set header information
+            imu_msg.header.frame_id = "imu";
+            imu_msg.header.stamp = sec2stamp(vImuTimestamp[count_imu_]);
+            
+            imu_pub_->publish(imu_msg);
+            count_imu_++;
+        }
+    }
+
+    /**
+     * @brief Publish image data based on elapsed time
+     * @param elapsed_time Current elapsed time since start
+     */
+    void publishImageData(double elapsed_time)
+    {
+        while (count_image_ < size_img_ && 
+               (vImageTimeStamp[count_image_] - dataset_start_time_) < elapsed_time) {
+            
+            // Create header
+            std_msgs::msg::Header header;
+            header.frame_id = "camera";
+            header.stamp = sec2stamp(vImageTimeStamp[count_image_]);
+            
+            // Load and publish image
+            cv::Mat img = cv::imread(vImagePath[count_image_], cv::IMREAD_GRAYSCALE);
+            if (!img.empty()) {
+                auto image_msg = cv_bridge::CvImage(header, "mono8", img).toImageMsg();
+                image_pub_->publish(*image_msg);
+                
+                if (count_image_ % 100 == 0) {
+                    RCLCPP_INFO(this->get_logger(), "Published image %zu/%zu", 
+                                count_image_, size_img_);
+                }
+            } else {
+                RCLCPP_WARN(this->get_logger(), "Failed to load image: %s", 
+                            vImagePath[count_image_].c_str());
+            }
+            
+            count_image_++;
+        }
+    }
+
+    /**
+     * @brief Convert seconds to ROS2 timestamp
+     * @param sec Time in seconds
+     * @return ROS2 timestamp message
+     */
     builtin_interfaces::msg::Time sec2stamp(const double &sec)
     {
-        builtin_interfaces::msg::Time tm;
-        tm.sec = static_cast<int32_t>(sec);
-        tm.nanosec = static_cast<uint32_t>((sec - tm.sec) * 1e9);
-        return tm;
+        builtin_interfaces::msg::Time timestamp;
+        timestamp.sec = static_cast<int32_t>(sec);
+        timestamp.nanosec = static_cast<uint32_t>((sec - timestamp.sec) * 1e9);
+        return timestamp;
     }
 
-    double stamp2sec(const builtin_interfaces::msg::Time &in_time)
-    {
-        return static_cast<double>(in_time.sec) + static_cast<double>(in_time.nanosec) * 1e-9;
-    }
+    // Publishers
+    rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub_;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_pub_;
+    rclcpp::TimerBase::SharedPtr timer_;
 
-    rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub;
-    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_pub;
-    rclcpp::TimerBase::SharedPtr timer_image, timer_imu;
-    size_t count_imu = 0;
-    size_t count_image = 0;
-    size_t size_imu, size_img;
-    std::chrono::_V2::system_clock::time_point Tini;
-    double startTime = 0;
+    // Counters and sizes
+    size_t count_imu_ = 0;
+    size_t count_image_ = 0;
+    size_t size_imu_ = 0;
+    size_t size_img_ = 0;
 
+    // Timing variables
+    std::chrono::high_resolution_clock::time_point start_time_;
+    double dataset_start_time_ = 0.0;
 };
 
-int main(int argc, char **argv)
+/**
+ * @brief Load EuRoC dataset images
+ * @param data_folder Path to EuRoC dataset folder
+ * @return true if successful, false otherwise
+ */
+bool loadImages(const string& data_folder)
 {
-    string dataFolder = string(argv[1]);
-    // load images
     vImagePath.reserve(6000);
     vImageTimeStamp.reserve(6000);
-    ifstream fimage;
-    fimage.open(dataFolder+ "/mav0/cam0/data.csv");
-    while(!fimage.eof())
-    {
-        string s;
-        getline(fimage,s);
-        if(!s.empty())
-        {
-            if (s[0] == '#')
-                continue;
-            int pos = s.find(',');
-            string item = s.substr(0, pos);
-            vImagePath.push_back(dataFolder + "/mav0/cam0/data/" + item + ".png");
-            vImageTimeStamp.push_back(stod(item) * 1e-9);
+    
+    ifstream image_file(data_folder + "/mav0/cam0/data.csv");
+    if (!image_file.is_open()) {
+        cerr << "Error: Cannot open image CSV file" << endl;
+        return false;
+    }
+
+    string line;
+    while (getline(image_file, line)) {
+        if (line.empty() || line[0] == '#') {
+            continue;
+        }
+
+        size_t comma_pos = line.find(',');
+        if (comma_pos != string::npos) {
+            string timestamp_str = line.substr(0, comma_pos);
+            vImagePath.push_back(data_folder + "/mav0/cam0/data/" + timestamp_str + ".png");
+            vImageTimeStamp.push_back(stod(timestamp_str) * 1e-9);
         }
     }
-    // load imus
+    image_file.close();
+    
+    cout << "Loaded " << vImagePath.size() << " image entries" << endl;
+    return true;
+}
+
+/**
+ * @brief Load EuRoC dataset IMU data
+ * @param data_folder Path to EuRoC dataset folder
+ * @return true if successful, false otherwise
+ */
+bool loadImuData(const string& data_folder)
+{
     vImuAcc.reserve(60000);
     vImuGyr.reserve(60000);
     vImuTimestamp.reserve(60000);
-    ifstream fImu;
-    fImu.open(dataFolder + "/mav0/imu0/data.csv");
     
-    while(!fImu.eof())
-    {
-        string s;
-        getline(fImu,s);
-        if (s[0] == '#')
+    ifstream imu_file(data_folder + "/mav0/imu0/data.csv");
+    if (!imu_file.is_open()) {
+        cerr << "Error: Cannot open IMU CSV file" << endl;
+        return false;
+    }
+
+    string line;
+    while (getline(imu_file, line)) {
+        if (line.empty() || line[0] == '#') {
             continue;
-        if(!s.empty())
-        {
-            string item;
-            size_t pos = 0;
-            double data[7];
-            int count = 0;
-            while ((pos = s.find(',')) != string::npos) {
-                item = s.substr(0, pos);
-                data[count++] = stod(item);
-                s.erase(0, pos + 1);
-            }
-            item = s.substr(0, pos);
-            data[6] = stod(item);
-            vImuTimestamp.push_back(data[0] * 1e-9);
-            vImuAcc.push_back(cv::Point3f(data[4],data[5],data[6]));
-            vImuGyr.push_back(cv::Point3f(data[1],data[2],data[3]));
+        }
+
+        // Parse CSV line: timestamp,wx,wy,wz,ax,ay,az
+        vector<double> data;
+        string token;
+        size_t pos = 0;
+        
+        while ((pos = line.find(',')) != string::npos) {
+            token = line.substr(0, pos);
+            data.push_back(stod(token));
+            line.erase(0, pos + 1);
+        }
+        data.push_back(stod(line)); // Last token
+        
+        if (data.size() == 7) {
+            vImuTimestamp.push_back(data[0] * 1e-9);  // Convert nanoseconds to seconds
+            vImuGyr.push_back(cv::Point3f(data[1], data[2], data[3]));  // Angular velocity
+            vImuAcc.push_back(cv::Point3f(data[4], data[5], data[6]));  // Linear acceleration
         }
     }
-    std::cout<< " data loaded : "<< dataFolder<<std::endl;
+    imu_file.close();
+    
+    cout << "Loaded " << vImuTimestamp.size() << " IMU entries" << endl;
+    return true;
+}
 
+/**
+ * @brief Main function
+ */
+int main(int argc, char **argv)
+{
+    if (argc != 2) {
+        cerr << "Usage: " << argv[0] << " <path_to_euroc_dataset>" << endl;
+        return -1;
+    }
+
+    string data_folder = string(argv[1]);
+    cout << "Loading EuRoC dataset from: " << data_folder << endl;
+
+    // Load dataset
+    if (!loadImages(data_folder) || !loadImuData(data_folder)) {
+        cerr << "Failed to load dataset" << endl;
+        return -1;
+    }
+
+    cout << "Dataset loaded successfully" << endl;
+    cout << "Starting ROS2 publisher..." << endl;
+
+    // Initialize ROS2 and start publishing
     rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<Talker>());
+    auto node = std::make_shared<EuRoCPublisher>();
+    rclcpp::spin(node);
     rclcpp::shutdown();
+    
     return 0;
 }

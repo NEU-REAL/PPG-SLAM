@@ -41,7 +41,13 @@ void EdgeMono::linearizeOplus()
 
     // Use temporary variable to avoid alignment issues
     Eigen::Matrix<double, 2, 6> temp_xj = proj_jac * Rcb * SE3deriv;
-    _jacobianOplusXj = temp_xj;
+    
+    // Use element-wise assignment to avoid alignment issues
+    for(int i = 0; i < 2; ++i) {
+        for(int j = 0; j < 6; ++j) {
+            _jacobianOplusXj(i, j) = temp_xj(i, j);
+        }
+    }
 }
 
 bool EdgeMono::isDepthPositive()
@@ -110,7 +116,13 @@ void EdgeMonoOnlyPose::linearizeOplus()
     
     // Use temporary variable to avoid alignment issues
     Eigen::Matrix<double, 2, 6> temp_xi = proj_jac * Rcb * SE3deriv;
-    _jacobianOplusXi = temp_xi;
+    
+    // FIXME: Use element-wise assignment to avoid alignment issues
+    for(int i = 0; i < 2; ++i) {
+        for(int j = 0; j < 6; ++j) {
+            _jacobianOplusXi(i, j) = temp_xi(i, j);
+        }
+    }
 }
 
 
@@ -134,7 +146,13 @@ void EdgeSE3ProjectXYZOnlyPose::linearizeOplus()
     // Create a temporary aligned matrix for the result to avoid memory alignment issues
     Eigen::Matrix<double, 2, 3> proj_jac = pCamera->projectJac(xyz_trans);
     Eigen::Matrix<double, 2, 6> result = -proj_jac * SE3deriv;
-    _jacobianOplusXi = result;
+    
+    // FIXME: Use element-wise assignment to avoid alignment issues
+    for(int i = 0; i < 2; ++i) {
+        for(int j = 0; j < 6; ++j) {
+            _jacobianOplusXi(i, j) = result(i, j);
+        }
+    }
 }
 
 bool EdgeSE3ProjectXYZOnlyPose::isDepthPositive()
@@ -173,7 +191,13 @@ void EdgeSE3ProjectXYZ::linearizeOplus()
 
     // Use temporary variable to avoid alignment issues
     Eigen::Matrix<double, 2, 3> temp_xi = projectJac * T.rotation().toRotationMatrix();
-    _jacobianOplusXi = temp_xi;
+
+    // FIXME: Use element-wise assignment to avoid alignment issues
+    for(int i = 0; i < 2; ++i) {
+        for(int j = 0; j < 3; ++j) {
+            _jacobianOplusXi(i, j) = temp_xi(i, j);
+        }
+    }
 
     // SE(3) derivative matrix using efficient construction
     Eigen::Matrix<double,3,6> SE3deriv;
@@ -182,7 +206,13 @@ void EdgeSE3ProjectXYZ::linearizeOplus()
 
     // Use temporary variable to avoid alignment issues  
     Eigen::Matrix<double, 2, 6> temp_xj = projectJac * SE3deriv;
-    _jacobianOplusXj = temp_xj;
+
+    // FIXME: Use element-wise assignment to avoid alignment issues
+    for(int i = 0; i < 2; ++i) {
+        for(int j = 0; j < 6; ++j) {
+            _jacobianOplusXj(i, j) = temp_xj(i, j);
+        }
+    }
 }
 
 VertexSim3Expmap::VertexSim3Expmap() : BaseVertex<7, g2o::Sim3>()

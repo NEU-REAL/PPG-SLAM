@@ -107,7 +107,7 @@ void SlamNode::Load()
     int width = fsSettings["Camera.width"].operator int();
     int height = fsSettings["Camera.height"].operator int();
     float fps = fsSettings["Camera.fps"].real();
-    GeometricCamera* pCam;
+    GeometricCamera* pCam = nullptr;
     std::string cameraModel = fsSettings["Camera.type"].string();
     std::vector<float> vCalibration(8,0);
     if (cameraModel == "PinHole")
@@ -134,6 +134,12 @@ void SlamNode::Load()
         vCalibration[7] = fsSettings["Camera.k3"].real();
         pCam = new KannalaBrandt8(vCalibration, width, height, fps);
     }
+    else
+    {
+        std::cerr<<" unknown camera model: "<<cameraModel<<std::endl;
+        exit(-1);
+    }
+    
     float ng = fsSettings["IMU.NoiseGyro"].real();
     float na = fsSettings["IMU.NoiseAcc"].real();
     float wg = fsSettings["IMU.GyroWalk"].real();
@@ -172,7 +178,7 @@ void SlamNode::Load()
     MSLoopClosing::get().Launch(mpMap, true);
     cout << "done!"<<endl;
 
-	srand(0); 
+    srand(0); 
 }
 
 void SlamNode::timer()
