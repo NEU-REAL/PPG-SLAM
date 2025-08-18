@@ -1,8 +1,6 @@
 /**
  * @file MLPnPsolver.cpp
  * @brief Implementation of Maximum Likelihood Perspective-n-Point solver
- * @author PPG-SLAM Team
- * @date 2025
  */
 
 #include <Eigen/Sparse>

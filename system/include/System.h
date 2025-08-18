@@ -1,11 +1,18 @@
+/**
+ * @file System.h
+ * @brief Main SLAM system class for PPG-SLAM
+ * @author PPG-SLAM Team
+ */
+
 #pragma once
 
 #include <unistd.h>
-#include<stdio.h>
-#include<stdlib.h>
-#include<string>
-#include<thread>
-#include<opencv2/core/core.hpp>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string>
+#include <thread>
+#include <mutex>
+#include <opencv2/core/core.hpp>
 
 #include "Tracking.h"
 #include "LocalMapping.h"
@@ -18,44 +25,61 @@
 #include "SE3.h"
 #include "Map.h"
 
+using namespace std;
+
+// Forward declarations
 class Map;
 class Tracking;
 class LocalMapping;
 class LoopClosing;
 
+/**
+ * @brief Main SLAM system class that coordinates all threads and components
+ * 
+ * This class serves as the main interface for the PPG-SLAM system.
+ * It initializes and manages all major components including tracking,
+ * local mapping, loop closing, and visualization threads.
+ */
 class System
 {
 public:
-
-public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-    // Initialize the SLAM system. It launches the Local Mapping, Loop Closing and Viewer threads.
-    System(const string &strVocFile, const string &strSettingsFile,const string &strNet, const bool bUseViewer = true);
+    
+    /**
+     * @brief Initialize the SLAM system and launch all threads
+     * @param strVocFile Path to vocabulary file for place recognition
+     * @param strSettingsFile Path to configuration file with camera/IMU parameters
+     * @param strNet Path to neural network models for feature extraction
+     * @param bUseViewer Enable/disable visualization thread (default: true)
+     */
+    System(const string &strVocFile, const string &strSettingsFile, const string &strNet, const bool bUseViewer = true);
 
-    // Proccess the given monocular frame and optionally imu data
-    // Input images: RGB (CV_8UC3) or grayscale (CV_8U). RGB is converted to grayscale.
-    // Returns the camera pose (empty if tracking fails).
-    SE3f TrackMonocular(const cv::Mat &im, const double &timestamp, const vector<IMU::Point>& vImuMeas = vector<IMU::Point>(), string filename="");
+    /**
+     * @brief Process monocular frame with optional IMU data
+     * @param im Input image (RGB CV_8UC3 or grayscale CV_8U, RGB will be converted)
+     * @param timestamp Image timestamp in seconds
+     * @param vImuMeas Vector of IMU measurements between frames (optional)
+     * @param filename Debug filename for logging (optional)
+     * @return Camera pose SE3f (empty if tracking fails)
+     */
+    SE3f TrackMonocular(const cv::Mat &im, const double &timestamp, 
+                       const vector<IMU::Point>& vImuMeas = vector<IMU::Point>(), 
+                       string filename = "");
 
-    // This stops local mapping thread (map building) and performs only camera tracking.
-    // This resumes local mapping thread and performs SLAM again.
-
-    // All threads will be requested to finish.
-    // It waits until all threads have finished.
-    // This function must be called before saving the trajectory.
+    /**
+     * @brief Shutdown all threads and save trajectory
+     * 
+     * Requests all threads to finish and waits for completion.
+     * Must be called before program termination to save trajectory data.
+     */
     void Shutdown();
 
-public:
+private:
+    // Core SLAM components
+    DBoW3::Vocabulary* mpVocabulary;    ///< Vocabulary for place recognition and feature matching
+    Map* mpMap;                         ///< Map structure storing KeyFrames and MapPoints
 
-    // vocabulary used for place recognition and feature matching.
-    DBoW3::Vocabulary* mpVocabulary;
-
-    // Map structure that stores the pointers to all KeyFrames and MapPoints.
-    Map* mpMap;
-
-    // Reset flag
-    std::mutex mMutexReset;
-
-    // Shutdown flag
-    bool mbShutDown;
+    // Thread synchronization
+    std::mutex mMutexReset;             ///< Mutex for reset operations
+    bool mbShutDown;                    ///< Shutdown flag to coordinate thread termination
 };

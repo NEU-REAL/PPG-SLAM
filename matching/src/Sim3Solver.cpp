@@ -1,8 +1,6 @@
 /**
  * @file Sim3Solver.cpp
  * @brief Implementation of Similarity transformation solver for loop closure
- * @author PPG-SLAM Team  
- * @date 2025
  */
 
 #include <cstdlib>

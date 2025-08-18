@@ -852,7 +852,7 @@ void MSViewing::GetCurrentOpenGLCameraMatrix(pangolin::OpenGlMatrix &M, pangolin
  */
 void MSViewing::SaveTrajectory(const std::string &filename)
 {
-    cout << endl << "PPG-SLAM: Saving trajectory to " << filename << " ..." << endl;
+    cout << endl << "Saving trajectory to " << filename << " ..." << endl;
 
     // Get and sort keyframes by ID
     vector<KeyFrame*> vpKFs = mpMap->GetAllKeyFrames();
@@ -905,7 +905,7 @@ void MSViewing::SaveTrajectory(const std::string &filename)
     }
     
     f.close();
-    cout << "PPG-SLAM: Trajectory saved successfully." << endl;
+    cout << "Trajectory saved successfully." << endl;
 }
 
 /**
@@ -921,7 +921,7 @@ void MSViewing::SaveTrajectory(const std::string &filename)
  */
 void MSViewing::SaveKeyFrameTrajectory(const std::string &filename)
 {
-    cout << endl << "PPG-SLAM: Saving keyframe trajectory to " << filename << " ..." << endl;
+    cout << endl << "Saving keyframe trajectory to " << filename << " ..." << endl;
 
     // Get and sort keyframes by ID
     vector<KeyFrame*> vpKFs = mpMap->GetAllKeyFrames();
@@ -955,5 +955,5 @@ void MSViewing::SaveKeyFrameTrajectory(const std::string &filename)
     }
     
     f.close();
-    cout << "PPG-SLAM: Keyframe trajectory saved successfully." << endl;
+    cout << "Keyframe trajectory saved successfully." << endl;
 }

@@ -1,384 +1,427 @@
+/**
+ * @file LocalMapping.cpp
+ * @brief Local mapping module implementation for PPG-SLAM
+ */
+
 #include "LocalMapping.h"
-#include "LoopClosing.h"
+#include "LoopClosing.h" 
 #include "Matcher.h"
 #include "Optimizer.h"
+#include "Tracking.h"
 
-#include<mutex>
-#include<chrono>
+#include <mutex>
+#include <chrono>
+#include <iostream>
+
 void MSLocalMapping::Launch(Map *pMap)
 {
+    if (!pMap) {
+        std::cerr << "ERROR: MSLocalMapping::Launch - Map pointer is null" << std::endl;
+        return;
+    }
+
+    // Initialize control flags
     mbResetRequested = false;
-    mbFinishRequested =false;
+    mbFinishRequested.store(false);
     mpMap = pMap;
-    bInitializing = false;
     mbAbortBA = false;
     mbStopped = false;
     mbStopRequested = false;
     mbNotStop = false;
     mbLocalMappingIdle = true;
-    mScale = 1.0;
-    infoInertial = Eigen::MatrixXd::Zero(9,9);
-    mTinit = 0.f;
-    mptLocalMapping = new thread(&MSLocalMapping::Run, this);
+    
+    // Clear existing data structures
+    {
+        std::unique_lock<std::mutex> lock(mMutexNewKFs);
+        mlNewKeyFrames.clear();
+    }
+    
+    // Start the local mapping thread
+    try {
+        mptLocalMapping = new std::thread(&MSLocalMapping::Run, this);
+        std::cout << "Local Mapping thread launched successfully" << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "ERROR: Failed to launch Local Mapping thread: " << e.what() << std::endl;
+        throw;
+    }
 }
 
 void MSLocalMapping::Run()
 {
-    while(1)
+    std::cout << "Local Mapping thread started" << std::endl;
+    
+    while (!mbFinishRequested.load())
     {
-        // Tracking will see that Local Mapping is busy
         mbLocalMappingIdle = false;
 
-        // Check if there are keyframes in the queue
-        if(CheckNewKeyFrames())
-        {
-            // // BoW conversion and insertion in Map
-            ProcessNewKeyFrame();
-
-            mbAbortBA = false;
-
-            if(!CheckNewKeyFrames())//FIXME 有没有对位姿估计精度影响不显著
+        try {
+            if (CheckNewKeyFrames())
             {
-                // Find more matches in neighbor keyframes and fuse point duplications
-                SearchInNeighbors();
-            } 
+                ProcessNewKeyFrame();
+                mbAbortBA = false;
 
-            if(mpMap->KeyFramesInMap()>2)
-            {
-
-                if(mpMap->isImuInitialized())
+                // Search for additional matches if no new keyframes waiting
+                if (!CheckNewKeyFrames())
                 {
-                    bool bLarge = MSTracking::get().GetMatchesInliers()>75;
-                    Optimizer::LocalInertialBA(mpCurrentKeyFrame, &mbAbortBA, mpMap, bLarge, !mpMap->GetInertialBA());
-                    
-                    float dist = (mpCurrentKeyFrame->mPrevKF->GetCameraCenter() - mpCurrentKeyFrame->GetCameraCenter()).norm() + (mpCurrentKeyFrame->mPrevKF->mPrevKF->GetCameraCenter() - mpCurrentKeyFrame->mPrevKF->GetCameraCenter()).norm();
-                    if(dist>0.05)
-                        mTinit += mpCurrentKeyFrame->mTimeStamp - mpCurrentKeyFrame->mPrevKF->mTimeStamp;
+                    SearchInNeighbors();
+                } 
+
+                // Perform local bundle adjustment
+                if (mpMap->KeyFramesInMap() > 2)
+                {
+                    if (mpMap->isImuInitialized())
+                    {
+                        const bool bLarge = MSTracking::get().GetMatchesInliers() > 75;
+                        Optimizer::LocalInertialBA(mpCurrentKeyFrame, &mbAbortBA, mpMap, 
+                                                 bLarge, !mpMap->GetInertialBA());
+                    }
+                    else
+                    {
+                        Optimizer::LocalBundleAdjustment(mpCurrentKeyFrame, &mbAbortBA, mpMap);
+                    }
                 }
-                else
-                    Optimizer::LocalBundleAdjustment(mpCurrentKeyFrame,&mbAbortBA, mpMap);
 
-                // Initialize IMU here
-                // if(!mpMap->isImuInitialized())
-                //     InitializeIMU(1e2, 1e10, true);
-                // else 
-                // {
-                //     if (!mpMap->GetIniertialBA1() && mTinit>Map::imuIniTm) // TODO:imu initialization time, 10for euroc ,5 for uma, 10 for tum \\ warning IMU 初始化时间对结果影响很大
-                //     {
-                //         cout << "start visual inertial BA" << endl;
-                //         mpMap->SetIniertialBA1();
-                //         mpMap->SetInertialBA();
-                //         InitializeIMU(1.f, 1e5, true);
-                //         cout << "end visual inertial BA" << endl;
-                //     }
-                //     // scale refinement
-                //     if (((mpMap->KeyFramesInMap())<=200) && mpMap->KeyFramesInMap() %10 == 0)
-                //         ScaleRefinement();
-                // }
+                MSLoopClosing::get().InsertKeyFrame(mpCurrentKeyFrame);
             }
-            MSLoopClosing::get().InsertKeyFrame(mpCurrentKeyFrame);
-        }
-        else if(Stop())
-        {
-            while(isStopped() && !mbFinishRequested)
-                usleep(1000);
-        }
-        ResetIfRequested();
+            else if (Stop())
+            {
+                while (isStopped() && !mbFinishRequested.load())
+                {
+                    std::this_thread::sleep_for(std::chrono::microseconds(1000));
+                }
+            }
+            
+            ResetIfRequested();
+            mbLocalMappingIdle = true;
 
-        mbLocalMappingIdle = true;
+            if (mbFinishRequested.load())
+                break;
 
-        if(mbFinishRequested)
-        {
-            mbFinishRequested = false;
-            break;
+            std::this_thread::sleep_for(std::chrono::microseconds(1000));
+            
+        } catch (const std::exception& e) {
+            std::cerr << "ERROR in Local Mapping main loop: " << e.what() << std::endl;
+            mbLocalMappingIdle = true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
-
-        usleep(1000);
     }
+    
+    std::cout << "Local Mapping thread finished" << std::endl;
 }
 
 void MSLocalMapping::InsertKeyFrame(KeyFrame *pKF)
 {
-    unique_lock<mutex> lock(mMutexNewKFs);
-    mlNewKeyFrames.push_back(pKF);
-    mbAbortBA=true;
+    if (!pKF || pKF->isBad()) {
+        std::cerr << "WARNING: MSLocalMapping::InsertKeyFrame - Invalid keyframe" << std::endl;
+        return;
+    }
+    
+    {
+        std::unique_lock<std::mutex> lock(mMutexNewKFs);
+        mlNewKeyFrames.push_back(pKF);
+    }
+    
+    mbAbortBA = true;  // Abort current BA for immediate processing
 }
-
 
 bool MSLocalMapping::CheckNewKeyFrames()
 {
-    unique_lock<mutex> lock(mMutexNewKFs);
-    return(!mlNewKeyFrames.empty());
+    std::unique_lock<std::mutex> lock(mMutexNewKFs);
+    return !mlNewKeyFrames.empty();
 }
 
 void MSLocalMapping::ProcessNewKeyFrame()
 {
     {
-        unique_lock<mutex> lock(mMutexNewKFs);
+        std::unique_lock<std::mutex> lock(mMutexNewKFs);
+        if (mlNewKeyFrames.empty()) {
+            std::cerr << "WARNING: MSLocalMapping::ProcessNewKeyFrame - No keyframes in queue" << std::endl;
+            return;
+        }
+        
         mpCurrentKeyFrame = mlNewKeyFrames.front();
         mlNewKeyFrames.pop_front();
+    }
+    
+    if (!mpCurrentKeyFrame || mpCurrentKeyFrame->isBad()) {
+        std::cerr << "WARNING: MSLocalMapping::ProcessNewKeyFrame - Invalid keyframe retrieved" << std::endl;
+        return;
     }
 }
 
 void MSLocalMapping::EmptyQueue()
 {
-    while(CheckNewKeyFrames())
+    while (CheckNewKeyFrames()) {
         ProcessNewKeyFrame();
+    }
 }
 
 void MSLocalMapping::SearchInNeighbors()
 {
-    // Retrieve neighbor keyframes
-    int nn = 30;
-    const vector<KeyFrame*> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn);
-    vector<KeyFrame*> vpTargetKFs;
-    for(vector<KeyFrame*>::const_iterator vit=vpNeighKFs.begin(), vend=vpNeighKFs.end(); vit!=vend; vit++)
+    if (!mpCurrentKeyFrame) {
+        std::cerr << "ERROR: MSLocalMapping::SearchInNeighbors - Current keyframe is null" << std::endl;
+        return;
+    }
+
+    // Get primary covisible neighbors
+    constexpr int nn = 30;
+    const std::vector<KeyFrame*> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn);
+    std::vector<KeyFrame*> vpTargetKFs;
+    vpTargetKFs.reserve(vpNeighKFs.size() * 2);
+    
+    // Filter valid primary neighbors
+    for (const auto& pKFi : vpNeighKFs)
     {
-        KeyFrame* pKFi = *vit;
-        if(pKFi->isBad() || pKFi->mnFuseTargetForKF == mpCurrentKeyFrame->mnId)
+        if (!pKFi || pKFi->isBad() || pKFi->mnFuseTargetForKF == mpCurrentKeyFrame->mnId)
             continue;
+            
         vpTargetKFs.push_back(pKFi);
         pKFi->mnFuseTargetForKF = mpCurrentKeyFrame->mnId;
     }
 
-    // Add some covisible of covisible
-    // Extend to some second neighbors if abort is not requested
-    for(int i=0, imax=vpTargetKFs.size(); i<imax; i++)
+    // Extend to secondary neighbors
+    const size_t initial_size = vpTargetKFs.size();
+    for (size_t i = 0; i < initial_size && !mbAbortBA; ++i)
     {
-        const vector<KeyFrame*> vpSecondNeighKFs = vpTargetKFs[i]->GetBestCovisibilityKeyFrames(20);
-        for(vector<KeyFrame*>::const_iterator vit2=vpSecondNeighKFs.begin(), vend2=vpSecondNeighKFs.end(); vit2!=vend2; vit2++)
+        const std::vector<KeyFrame*> vpSecondNeighKFs = vpTargetKFs[i]->GetBestCovisibilityKeyFrames(20);
+        for (const auto& pKFi2 : vpSecondNeighKFs)
         {
-            KeyFrame* pKFi2 = *vit2;
-            if(pKFi2->isBad() || pKFi2->mnFuseTargetForKF==mpCurrentKeyFrame->mnId || pKFi2->mnId==mpCurrentKeyFrame->mnId)
+            if (!pKFi2 || pKFi2->isBad() || 
+                pKFi2->mnFuseTargetForKF == mpCurrentKeyFrame->mnId || 
+                pKFi2->mnId == mpCurrentKeyFrame->mnId)
                 continue;
+                
             vpTargetKFs.push_back(pKFi2);
-            pKFi2->mnFuseTargetForKF=mpCurrentKeyFrame->mnId;
+            pKFi2->mnFuseTargetForKF = mpCurrentKeyFrame->mnId;
         }
-        if (mbAbortBA)
-            break;
     }
 
-    // Extend to temporal neighbors
+    // Add temporal neighbors
     KeyFrame* pKFi = mpCurrentKeyFrame->mPrevKF;
-    while(vpTargetKFs.size()<20 && pKFi)
+    while (vpTargetKFs.size() < 20 && pKFi)
     {
-        if(pKFi->isBad() || pKFi->mnFuseTargetForKF==mpCurrentKeyFrame->mnId)
+        if (pKFi->isBad() || pKFi->mnFuseTargetForKF == mpCurrentKeyFrame->mnId)
         {
             pKFi = pKFi->mPrevKF;
             continue;
         }
         vpTargetKFs.push_back(pKFi);
-        pKFi->mnFuseTargetForKF=mpCurrentKeyFrame->mnId;
+        pKFi->mnFuseTargetForKF = mpCurrentKeyFrame->mnId;
         pKFi = pKFi->mPrevKF;
     }
 
-    // Search matches by projection from current KF in target KFs
+    // Fuse map points: current -> targets
     Matcher matcher(mpMap->mpCamera);
-    vector<MapPoint*> vpMapPointMatches = mpCurrentKeyFrame->GetMapPointMatches();
-    for(vector<KeyFrame*>::iterator vit=vpTargetKFs.begin(), vend=vpTargetKFs.end(); vit!=vend; vit++)
+    const std::vector<MapPoint*> vpMapPointMatches = mpCurrentKeyFrame->GetMapPointMatches();
+    
+    for (const auto& pKFi : vpTargetKFs)
     {
-        KeyFrame* pKFi = *vit;
-        matcher.Fuse(pKFi,vpMapPointMatches);
+        if (pKFi && !pKFi->isBad()) {
+            matcher.Fuse(pKFi, vpMapPointMatches);
+        }
     }
 
+    if (mbAbortBA) return;
 
-    if (mbAbortBA)
-        return;
+    // Fuse map points: targets -> current
+    std::vector<MapPoint*> vpFuseCandidates;
+    vpFuseCandidates.reserve(vpTargetKFs.size() * vpMapPointMatches.size());
 
-    // Search matches by projection from target KFs in current KF
-    vector<MapPoint*> vpFuseCandidates;
-    vpFuseCandidates.reserve(vpTargetKFs.size()*vpMapPointMatches.size());
-
-    for(vector<KeyFrame*>::iterator vitKF=vpTargetKFs.begin(), vendKF=vpTargetKFs.end(); vitKF!=vendKF; vitKF++)
+    for (const auto& pKFi : vpTargetKFs)
     {
-        KeyFrame* pKFi = *vitKF;
-
-        vector<MapPoint*> vpMapPointsKFi = pKFi->GetMapPointMatches();
-
-        for(vector<MapPoint*>::iterator vitMP=vpMapPointsKFi.begin(), vendMP=vpMapPointsKFi.end(); vitMP!=vendMP; vitMP++)
+        if (!pKFi || pKFi->isBad()) continue;
+        
+        const std::vector<MapPoint*> vpMapPointsKFi = pKFi->GetMapPointMatches();
+        for (const auto& pMP : vpMapPointsKFi)
         {
-            MapPoint* pMP = *vitMP;
-            if(!pMP)
+            if (!pMP || pMP->isBad() || pMP->mnFuseCandidateForKF == mpCurrentKeyFrame->mnId)
                 continue;
-            if(pMP->isBad() || pMP->mnFuseCandidateForKF == mpCurrentKeyFrame->mnId)
-                continue;
+                
             pMP->mnFuseCandidateForKF = mpCurrentKeyFrame->mnId;
             vpFuseCandidates.push_back(pMP);
         }
     }
 
-    matcher.Fuse(mpCurrentKeyFrame,vpFuseCandidates);
+    matcher.Fuse(mpCurrentKeyFrame, vpFuseCandidates);
 
-    // Update points
-    vpMapPointMatches = mpCurrentKeyFrame->GetMapPointMatches();
-    for(size_t i=0, iend=vpMapPointMatches.size(); i<iend; i++)
+    // Update map points after fusion
+    const std::vector<MapPoint*> vpUpdatedMapPointMatches = mpCurrentKeyFrame->GetMapPointMatches();
+    for (const auto& pMP : vpUpdatedMapPointMatches)
     {
-        MapPoint* pMP=vpMapPointMatches[i];
-        if(pMP)
+        if (pMP && !pMP->isBad())
         {
-            if(!pMP->isBad())
-            {
-                pMP->ComputeDistinctiveDescriptors();
-                pMP->UpdateNormalAndDepth();
-            }
+            pMP->ComputeDistinctiveDescriptors();
+            pMP->UpdateNormalAndDepth();
         }
     }
 
-    // Update Edges
-    vector<MapEdge*> vpMapEdgeMatches = mpCurrentKeyFrame->mvpMapEdges;
-    vector<MapEdge*> vpFuseEdgeCandidates;
+    // Fuse map edges (PPG-SLAM specific)
+    const std::vector<MapEdge*> vpMapEdgeMatches = mpCurrentKeyFrame->mvpMapEdges;
+    std::vector<MapEdge*> vpFuseEdgeCandidates;
     vpFuseEdgeCandidates.reserve(vpTargetKFs.size() * vpMapEdgeMatches.size());
-    for(vector<KeyFrame*>::iterator vitKF=vpTargetKFs.begin(), vendKF=vpTargetKFs.end(); vitKF!=vendKF; vitKF++)
+    
+    // Collect edge candidates
+    for (const auto& pKFi : vpTargetKFs)
     {
-        KeyFrame* pKFi = *vitKF;
-        vector<MapEdge*> vpMapEdgesKFi = pKFi->mvpMapEdges;
-
-        for(vector<MapEdge*>::iterator vitME=vpMapEdgesKFi.begin(), vendME=vpMapEdgesKFi.end(); vitME!=vendME; vitME++)
+        if (!pKFi || pKFi->isBad()) continue;
+        
+        const std::vector<MapEdge*> vpMapEdgesKFi = pKFi->mvpMapEdges;
+        for (const auto& pME : vpMapEdgesKFi)
         {
-            MapEdge* pME = *vitME;
-            if(!pME)
-                continue;
-            if(pME->isBad())
-                continue;
-            MapPoint* pMPs = pME->mpMPs;
-            MapPoint* pMPe = pME->mpMPe;
+            if (!pME || pME->isBad()) continue;
+            
+            const MapPoint* pMPs = pME->mpMPs;
+            const MapPoint* pMPe = pME->mpMPe;
+            if (!pMPs || !pMPe) continue;
+            
+            // Check if current keyframe observes both endpoints
             bool bFoundStart = false, bFoundEnd = false;
-            for(size_t i=0, iend=vpMapPointMatches.size(); i<iend; i++)
+            for (const auto& pMP : vpUpdatedMapPointMatches)
             {
-                if(vpMapPointMatches[i] == pMPs)
-                    bFoundStart = true;
-                if(vpMapPointMatches[i] == pMPe)
-                    bFoundEnd = true;
-                if(bFoundStart && bFoundEnd)
-                    break;
+                if (pMP == pMPs) bFoundStart = true;
+                if (pMP == pMPe) bFoundEnd = true;
+                if (bFoundStart && bFoundEnd) break;
             }
             
-            // 如果当前关键帧包含这条边的两个端点，则添加到融合候选中
-            if(bFoundStart && bFoundEnd)
+            if (bFoundStart && bFoundEnd)
             {
                 vpFuseEdgeCandidates.push_back(pME);
             }
         }
     }
 
-    // 融合边：检查当前关键帧是否已经有连接相同地图点对的边
-    for(vector<MapEdge*>::iterator vitME=vpFuseEdgeCandidates.begin(), vendME=vpFuseEdgeCandidates.end(); vitME!=vendME; vitME++)
+    // Perform edge fusion
+    for (const auto& pMECandidate : vpFuseEdgeCandidates)
     {
-        MapEdge* pMECandidate = *vitME;
-        MapPoint* pMPs = pMECandidate->mpMPs;
-        MapPoint* pMPe = pMECandidate->mpMPe;
+        if (!pMECandidate || pMECandidate->isBad()) continue;
         
-        // 在当前关键帧中查找是否已经存在连接相同地图点的边
+        const MapPoint* pMPs = pMECandidate->mpMPs;
+        const MapPoint* pMPe = pMECandidate->mpMPe;
+        if (!pMPs || !pMPe) continue;
+        
         bool bEdgeExists = false;
-        for(size_t i=0, iend=vpMapEdgeMatches.size(); i<iend; i++)
+        for (const auto& pME : vpMapEdgeMatches)
         {
-            MapEdge* pME = vpMapEdgeMatches[i];
-            if(!pME || pME->isBad())
-                continue;
+            if (!pME || pME->isBad()) continue;
                 
-            // 检查是否是连接相同地图点对的边（考虑方向性）
-            if((pME->mpMPs == pMPs && pME->mpMPe == pMPe) || 
+            if ((pME->mpMPs == pMPs && pME->mpMPe == pMPe) || 
                (pME->mpMPs == pMPe && pME->mpMPe == pMPs))
             {
                 bEdgeExists = true;
-                // 如果已存在，可以合并观测信息
-                std::map<KeyFrame*, int> candidateObs = pMECandidate->getObservations();
-                for(auto obs : candidateObs)
-                {
-                    pME->addObservation(obs.first, obs.second);
+                try {
+                    const std::map<KeyFrame*, int> candidateObs = pMECandidate->getObservations();
+                    for (const auto& obs : candidateObs)
+                    {
+                        if (obs.first && !obs.first->isBad()) {
+                            pME->addObservation(obs.first, obs.second);
+                        }
+                    }
+                } catch (const std::exception& e) {
+                    std::cerr << "WARNING: Error merging edge observations: " << e.what() << std::endl;
                 }
                 break;
             }
         }
         
-        // 如果不存在相同的边，则添加新的观测
-        if(!bEdgeExists)
+        if (!bEdgeExists)
         {
-            // 找到对应的KeyEdge索引
-            int edgeIdx = mpCurrentKeyFrame->FineEdgeIdx(pMPs->mnId, pMPe->mnId);
-            if(edgeIdx >= 0 && edgeIdx < (int)mpCurrentKeyFrame->mvpMapEdges.size())
-            {
-                if(!mpCurrentKeyFrame->mvpMapEdges[edgeIdx])
+            try {
+                const int edgeIdx = mpCurrentKeyFrame->FineEdgeIdx(pMPs->mnId, pMPe->mnId);
+                if (edgeIdx >= 0 && edgeIdx < static_cast<int>(mpCurrentKeyFrame->mvpMapEdges.size()))
                 {
-                    mpCurrentKeyFrame->mvpMapEdges[edgeIdx] = pMECandidate;
-                    pMECandidate->addObservation(mpCurrentKeyFrame, edgeIdx);
-                    
-                    // 添加到地图点的边列表中
-                    pMPs->addEdge(pMECandidate);
-                    pMPe->addEdge(pMECandidate);
+                    if (!mpCurrentKeyFrame->mvpMapEdges[edgeIdx])
+                    {
+                        mpCurrentKeyFrame->mvpMapEdges[edgeIdx] = pMECandidate;
+                        pMECandidate->addObservation(mpCurrentKeyFrame, edgeIdx);
+                        
+                        const_cast<MapPoint*>(pMPs)->addEdge(pMECandidate);
+                        const_cast<MapPoint*>(pMPe)->addEdge(pMECandidate);
+                    }
                 }
+            } catch (const std::exception& e) {
+                std::cerr << "WARNING: Error adding new edge observation: " << e.what() << std::endl;
             }
         }
     }
     
-    // 验证所有边的有效性
-    for(size_t i=0, iend=mpCurrentKeyFrame->mvpMapEdges.size(); i<iend; i++)
+    // Validate edges
+    for (const auto& pME : mpCurrentKeyFrame->mvpMapEdges)
     {
-        MapEdge* pME = mpCurrentKeyFrame->mvpMapEdges[i];
-        if(pME && !pME->isBad())
+        if (pME && !pME->isBad())
         {
-            pME->checkValid();
+            try {
+                pME->checkValid();
+            } catch (const std::exception& e) {
+                std::cerr << "WARNING: Error validating edge: " << e.what() << std::endl;
+            }
         }
     }
 
-    // Update connections in covisibility graph
-    mpCurrentKeyFrame->UpdateConnections();
+    // Update covisibility graph
+    try {
+        mpCurrentKeyFrame->UpdateConnections();
+    } catch (const std::exception& e) {
+        std::cerr << "ERROR: Failed to update keyframe connections: " << e.what() << std::endl;
+    }
 }
 
 void MSLocalMapping::RequestStop()
 {
-    unique_lock<mutex> lock(mMutexStop);
+    std::unique_lock<std::mutex> lock(mMutexStop);
     mbStopRequested = true;
-    unique_lock<mutex> lock2(mMutexNewKFs);
-    mbAbortBA = true;
+    
+    {
+        std::unique_lock<std::mutex> lock2(mMutexNewKFs);
+        mbAbortBA = true;
+    }
 }
 
 bool MSLocalMapping::Stop()
 {
-    unique_lock<mutex> lock(mMutexStop);
-    if(mbStopRequested && !mbNotStop)
+    std::unique_lock<std::mutex> lock(mMutexStop);
+    if (mbStopRequested && !mbNotStop)
     {
         mbStopped = true;
-        cout << "Local Mapping STOP" << endl;
+        std::cout << "Local Mapping STOP" << std::endl;
         return true;
     }
-
     return false;
 }
 
 bool MSLocalMapping::isStopped()
 {
-    unique_lock<mutex> lock(mMutexStop);
+    std::unique_lock<std::mutex> lock(mMutexStop);
     return mbStopped;
 }
 
 bool MSLocalMapping::stopRequested()
 {
-    unique_lock<mutex> lock(mMutexStop);
+    std::unique_lock<std::mutex> lock(mMutexStop);
     return mbStopRequested;
 }
 
 void MSLocalMapping::Release()
 {
-    unique_lock<mutex> lock(mMutexStop);
+    std::unique_lock<std::mutex> lock(mMutexStop);
     mbStopped = false;
     mbStopRequested = false;
-    for(list<KeyFrame*>::iterator lit = mlNewKeyFrames.begin(), lend=mlNewKeyFrames.end(); lit!=lend; lit++)
-        delete *lit;
-    mlNewKeyFrames.clear();
+    
+    // Clear pending keyframes (don't delete - they may be referenced elsewhere)
+    {
+        std::unique_lock<std::mutex> lockKFs(mMutexNewKFs);
+        mlNewKeyFrames.clear();
+    }
 
-    cout << "Local Mapping RELEASE" << endl;
+    std::cout << "Local Mapping RELEASE" << std::endl;
 }
 
 bool MSLocalMapping::SetNotStop(bool flag)
 {
-    unique_lock<mutex> lock(mMutexStop);
-
-    if(flag && mbStopped)
-        return false;
-
+    std::unique_lock<std::mutex> lock(mMutexStop);
+    if (flag && mbStopped) {
+        return false;  // Cannot set not-stop if already stopped
+    }
     mbNotStop = flag;
-
     return true;
 }
 
@@ -387,448 +430,72 @@ void MSLocalMapping::InterruptBA()
     mbAbortBA = true;
 }
 
-void MSLocalMapping::KeyFrameCulling()
-{
-    // Check redundant keyframes (only local keyframes)
-    // A keyframe is considered redundant if the 90% of the MapPoints it sees, are seen
-    // in at least other 3 keyframes (in the same or finer scale)
-    // We only consider close stereo points
-    const int Nd = 21;
-    mpCurrentKeyFrame->UpdateBestCovisibles();
-    vector<KeyFrame*> vpLocalKeyFrames = mpCurrentKeyFrame->GetVectorCovisibleKeyFrames();
-
-    float redundant_th = 0.9;
-
-    const bool bInitImu = mpMap->isImuInitialized();
-    int count=0;
-
-    // Compoute last KF from optimizable window:
-    unsigned int last_ID(0);
-    {
-        int count = 0;
-        KeyFrame* aux_KF = mpCurrentKeyFrame;
-        while(count<Nd && aux_KF->mPrevKF)
-        {
-            aux_KF = aux_KF->mPrevKF;
-            count++;
-        }
-        last_ID = aux_KF->mnId;
-    }
-
-
-
-    for(vector<KeyFrame*>::iterator vit=vpLocalKeyFrames.begin(), vend=vpLocalKeyFrames.end(); vit!=vend; vit++)
-    {
-        count++;
-        KeyFrame* pKF = *vit;
-
-        if(pKF->mnId==mpMap->GetOriginKF()->mnId || pKF->isBad())
-            continue;
-        const vector<MapPoint*> vpMapPoints = pKF->GetMapPointMatches();
-
-        int nObs = 3;
-        const int thObs=nObs;
-        int nRedundantObservations=0;
-        int nMPs=0;
-        for(size_t i=0, iend=vpMapPoints.size(); i<iend; i++)
-        {
-            MapPoint* pMP = vpMapPoints[i];
-            if(pMP)
-            {
-                if(!pMP->isBad())
-                {
-                    nMPs++;
-                    if(pMP->Observations()>thObs)
-                    {
-                        const map<KeyFrame*, int> observations = pMP->GetObservations();
-                        int nObs=0;
-                        for(map<KeyFrame*, int>::const_iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
-                        {
-                            KeyFrame* pKFi = mit->first;
-                            if(pKFi==pKF)
-                                continue;
-                            int index = mit->second;
-                            nObs++;
-                            if(nObs>thObs)
-                                break;
-                        }
-                        if(nObs>thObs)
-                        {
-                            nRedundantObservations++;
-                        }
-                    }
-                }
-            }
-        }
-
-        if(nRedundantObservations>redundant_th*nMPs)
-        {
-            if (mpMap->KeyFramesInMap()<=Nd)
-                continue;
-
-            if(pKF->mnId>(mpCurrentKeyFrame->mnId-2))
-                continue;
-            if(pKF->mnId==mpMap->GetOriginKF()->mnId)
-                continue;
-            if(pKF->mPrevKF && pKF->mNextKF)
-            {
-                const float t = pKF->mNextKF->mTimeStamp-pKF->mPrevKF->mTimeStamp;
-
-                if((bInitImu && (pKF->mnId<last_ID) && t<1.) || (t<0.5)) //byz:少剔除一些关键帧，间隔3秒改为1秒
-                {
-                    pKF->SetBadFlag();
-                    mpMap->EraseKeyFrame(pKF);
-                }
-                else if(!mpMap->GetInertialBA() && ((pKF->GetImuPosition()-pKF->mPrevKF->GetImuPosition()).norm()<0.02) && (t<1)) //byz:少剔除一些关键帧，间隔3秒改为1秒
-                {
-                    pKF->SetBadFlag();
-                    mpMap->EraseKeyFrame(pKF);
-                }
-            }
-
-        }
-        if((count > 20 && mbAbortBA) || count>100)
-        {
-            break;
-        }
-    }
-}
-
 void MSLocalMapping::RequestReset()
 {
     {
-        unique_lock<mutex> lock(mMutexReset);
-        cout << "LM: Map reset recieved" << endl;
+        std::unique_lock<std::mutex> lock(mMutexReset);
+        std::cout << "LM: Map reset received" << std::endl;
         mbResetRequested = true;
     }
-    cout << "LM: Map reset, waiting..." << endl;
+    
+    std::cout << "LM: Map reset, waiting..." << std::endl;
 
-    while(1)
+    auto start_time = std::chrono::steady_clock::now();
+    constexpr auto timeout = std::chrono::seconds(10);
+    
+    while (true)
     {
-        usleep(1000);
-        unique_lock<mutex> lock2(mMutexReset);
-        if(!mbResetRequested)
+        std::this_thread::sleep_for(std::chrono::microseconds(1000));
+        
+        {
+            std::unique_lock<std::mutex> lock2(mMutexReset);
+            if (!mbResetRequested) break;
+        }
+        
+        if (std::chrono::steady_clock::now() - start_time > timeout) {
+            std::cerr << "WARNING: Reset timeout - forcing completion" << std::endl;
+            std::unique_lock<std::mutex> lock2(mMutexReset);
+            mbResetRequested = false;
             break;
+        }
     }
-    cout << "LM: Map reset, Done!!!" << endl;
+    
+    std::cout << "LM: Map reset, Done!!!" << std::endl;
 }
-
 
 void MSLocalMapping::ResetIfRequested()
 {
-    unique_lock<mutex> lock(mMutexReset);
-    if(mbResetRequested)
+    std::unique_lock<std::mutex> lock(mMutexReset);
+    if (mbResetRequested)
     {
-        cout << "LM: Reseting map in Local Mapping..." << endl;
-        mlNewKeyFrames.clear();
-        mlpRecentAddedMapPoints.clear();
+        std::cout << "LM: Resetting map in Local Mapping..." << std::endl;
+        
+        {
+            std::unique_lock<std::mutex> lockKFs(mMutexNewKFs);
+            mlNewKeyFrames.clear();
+        }
+
         mbResetRequested = false;
-        // Inertial parameters
-        mTinit = 0.f;
-        cout << "LM: End reseting Local Mapping..." << endl;
+        std::cout << "LM: End resetting Local Mapping..." << std::endl;
     }
 }
 
 void MSLocalMapping::RequestFinish()
 {
-    mbFinishRequested = true;
-    while(mbFinishRequested == true)
-        usleep(1000);
-    std::cout << "Localmapping finished."<<std::endl;
-}
-
-void MSLocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
-{
-    if (mbResetRequested)
-        return;
-
-    if(mpMap->KeyFramesInMap()<10)
-        return;
-
-    // Retrieve all keyframe in temporal order
-    list<KeyFrame*> lpKF;
-    KeyFrame* pKF = mpCurrentKeyFrame;
-    while(pKF->mPrevKF)
+    mbFinishRequested.store(true);
+    
+    auto start_time = std::chrono::steady_clock::now();
+    constexpr auto timeout = std::chrono::seconds(5);
+    
+    while (mbFinishRequested.load())
     {
-        lpKF.push_front(pKF);
-        pKF = pKF->mPrevKF;
-    }
-    lpKF.push_front(pKF);
-    vector<KeyFrame*> vpKF(lpKF.begin(),lpKF.end());
-
-    if(vpKF.size()<10)
-        return;
-
-    mFirstTs=vpKF.front()->mTimeStamp;
-    if(mpCurrentKeyFrame->mTimeStamp-mFirstTs< 2.0)
-        return;
-
-    bInitializing = true;
-
-    while(CheckNewKeyFrames())
-    {
-        ProcessNewKeyFrame();
-        vpKF.push_back(mpCurrentKeyFrame);
-        lpKF.push_back(mpCurrentKeyFrame);
-    }
-
-    const int N = vpKF.size();
-    IMU::Bias b(0,0,0,0,0,0);
-
-    // Compute and KF velocities mRwg estimation
-    if (!mpMap->isImuInitialized())
-    {
-        Eigen::Matrix3f Rwg;
-        Eigen::Vector3f dirG;
-        dirG.setZero();
-        for(vector<KeyFrame*>::iterator itKF = vpKF.begin(); itKF!=vpKF.end(); itKF++)
-        {
-            if (!(*itKF)->mpImuPreintegrated)
-                continue;
-            if (!(*itKF)->mPrevKF)
-                continue;
-
-            dirG -= (*itKF)->mPrevKF->GetImuRotation() * (*itKF)->mpImuPreintegrated->GetUpdatedDeltaVelocity();
-            Eigen::Vector3f _vel = ((*itKF)->GetImuPosition() - (*itKF)->mPrevKF->GetImuPosition())/(*itKF)->mpImuPreintegrated->dT;
-            (*itKF)->SetVelocity(_vel);
-            (*itKF)->mPrevKF->SetVelocity(_vel);
-        }
-
-        dirG = dirG/dirG.norm();
-        Eigen::Vector3f gI(0.0f, 0.0f, -1.0f);
-        Eigen::Vector3f v = gI.cross(dirG);
-        const float nv = v.norm();
-        const float cosg = gI.dot(dirG);
-        const float ang = acos(cosg);
-        Eigen::Vector3f vzg = v*ang/nv;
+        std::this_thread::sleep_for(std::chrono::microseconds(1000));
         
-        // Safety check for vzg before calling SO3::exp
-        if (!vzg.allFinite() || nv < 1e-8) {
-            std::cout << "Warning: Invalid rotation vector in LocalMapping (nv=" << nv << ")" << std::endl;
-            Rwg = Eigen::Matrix3f::Identity();
-        } else {
-            try {
-                Rwg = SO3f::exp(vzg).matrix();
-            } catch (const std::exception& e) {
-                std::cout << "Warning: SO3::exp failed in LocalMapping: " << e.what() << std::endl;
-                Rwg = Eigen::Matrix3f::Identity();
-            }
+        if (std::chrono::steady_clock::now() - start_time > timeout) {
+            std::cerr << "WARNING: Finish timeout - forcing completion" << std::endl;
+            break;
         }
-        mRwg = Rwg.cast<double>();
-        mTinit = mpCurrentKeyFrame->mTimeStamp-mFirstTs;
-    }
-    else
-    {
-        mRwg = Eigen::Matrix3d::Identity();
-        mbg = mpCurrentKeyFrame->GetGyroBias().cast<double>();
-        mba = mpCurrentKeyFrame->GetAccBias().cast<double>();
-    }
-
-    mScale=1.0;
-
-    Optimizer::InertialOptimization(mpMap, mRwg, mScale, mbg, mba, false, priorG, priorA);
-
-    if (mScale<1e-1)
-    {
-        cout << "scale too small" << endl;
-        bInitializing=false;
-        return;
-    }
-
-    // Before this line we are not changing the map
-    {
-        unique_lock<mutex> lock(mpMap->mMutexMapUpdate);
-        if ((fabs(mScale - 1.f) > 0.00001)) {
-            SE3f Twg(mRwg.cast<float>().transpose(), Eigen::Vector3f::Zero());
-            mpMap->ApplyScaledRotation(Twg, mScale, true);
-            MSTracking::get().UpdateFrameIMU(mScale, vpKF[0]->GetImuBias(), mpCurrentKeyFrame);
-        }
-
-        // Check if initialization OK
-        if (!mpMap->isImuInitialized())
-            for (int i = 0; i < N; i++) {
-                KeyFrame *pKF2 = vpKF[i];
-                pKF2->bImu = true;
-            }
-    }
-
-    MSTracking::get().UpdateFrameIMU(1.0,vpKF[0]->GetImuBias(),mpCurrentKeyFrame);
-    if (!mpMap->isImuInitialized())
-    {
-        mpMap->SetImuInitialized();
-        mpCurrentKeyFrame->bImu = true;
-    }
-
-    if (bFIBA)
-    {
-        if (priorA!=0.f)
-            Optimizer::FullInertialBA(mpMap, 100, mpCurrentKeyFrame->mnId, NULL, true, priorG, priorA);
-        else
-            Optimizer::FullInertialBA(mpMap, 100, mpCurrentKeyFrame->mnId, NULL, false);
-    }
-
-    std::cout << "Global Bundle Adjustment finished" << std::endl << "Updating map ..."<< std::endl;
-
-    // Get Map Mutex
-    unique_lock<mutex> lock(mpMap->mMutexMapUpdate);
-
-    unsigned long GBAid = mpCurrentKeyFrame->mnId;
-
-    // Process keyframes in the queue
-    while(CheckNewKeyFrames())
-    {
-        ProcessNewKeyFrame();
-        vpKF.push_back(mpCurrentKeyFrame);
-        lpKF.push_back(mpCurrentKeyFrame);
-    }
-
-    // Correct All keyframes
-    std::vector<KeyFrame*> vpAllKFs = mpMap->GetAllKeyFrames();
-    KeyFrame* pOirKF = mpMap->GetOriginKF();
-    for(KeyFrame* pKF : vpAllKFs)
-    {
-        if(!pKF || pKF->isBad())
-            continue;
-        if(pKF->mnBAGlobalForKF != GBAid)
-        {
-            pKF->mTcwGBA = pKF->GetPose() * pOirKF->GetPoseInverse() * pKF->mTcwGBA;
-            if(pKF->isVelocitySet())
-                pKF->mVwbGBA = pKF->mTcwGBA.so3().inverse() * pKF->GetPose().so3() * pKF->GetVelocity();
-            else
-                std::cerr<< "GBA velocity empty!! "<< pKF->mnId <<std::endl;
-            pKF->mnBAGlobalForKF = GBAid;
-            pKF->mBiasGBA = pKF->GetImuBias();
-        }
-
-        pKF->mTcwBefGBA = pKF->GetPose();
-        pKF->SetPose(pKF->mTcwGBA);
-        if(pKF->bImu)
-        {
-            pKF->mVwbBefGBA = pKF->GetVelocity();
-            pKF->SetVelocity(pKF->mVwbGBA);
-            pKF->SetNewBias(pKF->mBiasGBA);
-        }
-        else
-            cerr << " GBA no inertial!! "<< pKF->mnId<<std::endl;
-    }
-
-    // Correct MapPoints
-    const vector<MapPoint*> vpMPs = mpMap->GetAllMapPoints();
-    for(size_t i=0; i<vpMPs.size(); i++)
-    {
-        MapPoint* pMP = vpMPs[i];
-
-        if(pMP->isBad())
-            continue;
-
-        if(pMP->mnBAGlobalForKF==GBAid)
-        {
-            // If optimized by Global BA, just update
-            pMP->SetWorldPos(pMP->mPosGBA);
-        }
-        else
-        {
-            // Update according to the correction of its reference keyframe
-            KeyFrame* pRefKF = pMP->GetReferenceKeyFrame();
-
-            if(pRefKF->mnBAGlobalForKF!=GBAid)
-                continue;
-
-            // Map to non-corrected camera
-            Eigen::Vector3f Xc = pRefKF->mTcwBefGBA * pMP->GetWorldPos();
-
-            // Backproject using corrected camera
-            pMP->SetWorldPos(pRefKF->GetPoseInverse() * Xc);
-        }
-    }
-    // remove bad colinearity edges
-    vector<MapEdge*> vpMEs = mpMap->GetAllMapEdges();
-    for(MapEdge* pME : vpMEs)
-    {
-        if(!pME || pME->isBad())
-            continue;
-        pME->checkValid();
-    }
-    for(MapPoint* pMP : vpMPs)
-    {
-        if(pMP == nullptr || pMP->isBad())
-            continue;
-        pMP->removeColineOutliers();
-    }
-
-    std::cout<<"Map updated!"<<std::endl;
-
-    for(list<KeyFrame*>::iterator lit = mlNewKeyFrames.begin(), lend=mlNewKeyFrames.end(); lit!=lend; lit++)
-    {
-        (*lit)->SetBadFlag();
-        mpMap->EraseKeyFrame((*lit));
-        delete *lit;
-    }
-    mlNewKeyFrames.clear();
-
-    MSTracking::get().mState=OK;
-    bInitializing = false;
-
-    mpMap->InfoMapChange();
-
-    return;
-}
-
-void MSLocalMapping::ScaleRefinement()
-{
-    if (mbResetRequested)
-        return;
-    // Retrieve all keyframes in temporal order
-    list<KeyFrame*> lpKF;
-    KeyFrame* pKF = mpCurrentKeyFrame;
-    while(pKF->mPrevKF)
-    {
-        lpKF.push_front(pKF);
-        pKF = pKF->mPrevKF;
-    }
-    lpKF.push_front(pKF);
-    vector<KeyFrame*> vpKF(lpKF.begin(),lpKF.end());
-
-    while(CheckNewKeyFrames())
-    {
-        ProcessNewKeyFrame();
-        vpKF.push_back(mpCurrentKeyFrame);
-        lpKF.push_back(mpCurrentKeyFrame);
-    }
-
-    const int N = vpKF.size();
-
-    mRwg = Eigen::Matrix3d::Identity();
-    mScale=1.0;
-
-    Optimizer::InertialOptimization(mpMap, mRwg, mScale);
-
-    if (mScale<1e-1) // 1e-1
-    {
-        cout << "scale too small" << endl;
-        bInitializing=false;
-        return;
     }
     
-    SO3d so3wg(mRwg);
-    // Before this line we are not changing the map
-    unique_lock<mutex> lock(mpMap->mMutexMapUpdate);
-    if ((fabs(mScale-1.f)>0.002))
-    {
-        SE3f Tgw(mRwg.cast<float>().transpose(),Eigen::Vector3f::Zero());
-        mpMap->ApplyScaledRotation(Tgw,mScale,true);
-        MSTracking::get().UpdateFrameIMU(mScale,mpCurrentKeyFrame->GetImuBias(),mpCurrentKeyFrame);
-    }
-    for(list<KeyFrame*>::iterator lit = mlNewKeyFrames.begin(), lend=mlNewKeyFrames.end(); lit!=lend; lit++)
-    {
-        (*lit)->SetBadFlag();
-        mpMap->EraseKeyFrame(pKF);
-        delete *lit;
-    }
-    mlNewKeyFrames.clear();
-
-    // To perform pose-inertial opt w.r.t. last keyframe
-    mpMap->InfoMapChange();
-
-    return;
+    std::cout << "Local mapping finished." << std::endl;
 }

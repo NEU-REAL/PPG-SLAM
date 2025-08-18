@@ -3,26 +3,25 @@
 #include <opencv2/core/core.hpp>
 #include <opencv2/features2d/features2d.hpp>
 #include <atomic>
+#include <mutex>
+#include <list>
+#include <vector>
+#include <unordered_set>
 
-#include "Viewer.h"
-#include "LocalMapping.h"
-#include "LoopClosing.h"
 #include "Frame.h"
 #include "PPGExtractor.h"
-#include "System.h"
 #include "IMU.h"
 #include "SE3.h"
-
 #include "GeometricCamera.h"
-
-#include <mutex>
-#include <unordered_set>
 
 class LocalMapping;
 class LoopClosing;
 class System;
+class Map;
+class KeyFrame;
+class MapPoint;
 
-// Tracking states
+// Tracking state enumeration
 enum eTrackingState{
     NO_IMAGES_YET=0,
     NOT_INITIALIZED=1,
@@ -32,146 +31,131 @@ enum eTrackingState{
 };
 
 
+/**
+ * @brief Visual-Inertial SLAM Tracking Module
+ * Implements camera pose estimation and feature tracking using PPG features
+ * Handles monocular visual-inertial initialization and frame-to-frame tracking
+ */
 class MSTracking
 {  
 public:
+    // Singleton pattern
     static MSTracking& get()
     {
         static MSTracking single_instance;
         return single_instance;
     }
+
 private:
     MSTracking() = default;
-    ~MSTracking()
-    {}
+    ~MSTracking() {}
     MSTracking(const MSTracking& other) = delete;
     MSTracking& operator=(const MSTracking& other) = delete;
-    static MSTracking* singleViewing;
     
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-    void Launch(Map* pMap, const string &strNet);
-
-    // Preprocess the input and call Track(). Extract features and performs stereo matching.
-    SE3f GrabImageMonocular(const cv::Mat &im, const double &timestamp, string filename);
-    void GrabImuData(const IMU::Point &imuMeasurement);
-
-    void UpdateFrameIMU(const float s, const IMU::Bias &b, KeyFrame* pCurrentKeyFrame);
-
-    KeyFrame* GetLastKeyFrame();
-
-    int GetMatchesInliers();
-
-    void Reset();
+    
+    // System interface
+    void Launch(Map* pMap, const string &strNet);  // Initialize tracking system
+    void Reset();  // Reset tracking state
+    
+    // Main tracking functions
+    SE3f GrabImageMonocular(const cv::Mat &im, const double &timestamp, string filename);  // Process monocular image
+    void GrabImuData(const IMU::Point &imuMeasurement);  // Add IMU measurement
+    
+    // Frame and IMU processing
+    void UpdateFrameIMU(const float s, const IMU::Bias &b, KeyFrame* pCurrentKeyFrame);  // Update frame with IMU data
+    
+    // State accessors
+    KeyFrame* GetLastKeyFrame();  // Get most recent keyframe
+    int GetMatchesInliers();  // Get current tracking quality
     
 public:
-
+    // Tracking state
     eTrackingState mState;
     eTrackingState mLastProcessedState;
 
-    // Current Frame
+    // Current processing
     Frame mCurrentFrame;
     Frame mLastFrame;
-
     cv::Mat mImGray;
 
-    // Initialization Variables (Monocular)
+    // Monocular initialization
     std::vector<int> mvIniMatches;
     std::vector<cv::Point2f> mvbPrevMatched;
     std::vector<cv::Point3f> mvIniP3D;
     Frame mInitialFrame;
 
-    // Lists used to recover the full camera trajectory at the end of the execution.
-    // Basically we store the reference keyframe for each frame and its relative transformation
-    list<SE3f> mlRelativeFramePoses;
-    list<KeyFrame*> mlpReferences;
-    list<double> mlFrameTimes;
-    list<bool> mlbLost;
+    // Trajectory recovery data
+    std::list<SE3f> mlRelativeFramePoses;
+    std::list<KeyFrame*> mlpReferences;
+    std::list<double> mlFrameTimes;
+    std::list<bool> mlbLost;
 
 protected:
-    // Main tracking function.
-    void Track();
-    // Map initialization for monocular
-    void MonocularInitialization();
-    //void CreateNewMapPoints();
-    void CreateInitialMapMonocular();
-
-    void CheckReplacedInLastFrame();
-    bool TrackReferenceKeyFrame();
-    bool TrackWithMotionModel();
-    bool PredictStateIMU();
-    // Map
-    bool Relocalization();
-    void UpdateLocalMap();
-    void UpdateLocalPoints();
-    void UpdateLocalKeyFrames();
-    bool TrackLocalMap();
-    void SearchLocalPoints();
-
-    bool NeedNewKeyFrame();
-    void CreateNewKeyFrame();
-    // Perform preintegration from last frame
-    void PreintegrateIMU();
-    // Reset IMU biases and compute frame velocity
-    void ResetFrameIMU();
-    // Initialize IMU
-    void InitializeIMU(float priorG = 1e2, float priorA = 1e6, bool bFirst = false);
-    void ScaleRefinement();
-private:
-    // System
-    System* mpSystem;
-    //ext
-    PPGExtractor* mpExtractor;
-    //Local Map
-    KeyFrame* mpReferenceKF;
-    std::vector<KeyFrame*> mvpLocalKeyFrames;
-    std::vector<MapPoint*> mvpLocalMapPoints;
-    //Map
-    Map* mpMap;
-
-    //Last Frame, KeyFrame and Relocalisation Info
-    KeyFrame* mpLastKeyFrame;
-    unsigned int mnLastRelocFrameId;
-    double mTimeStampLost;
-    // map flags
-    bool mbMapUpdated;
-
-    // Initalization (only for monocular)
-    bool mbReadyToInitializate;
-
-    // IMU
-    // Imu preintegration from last frame
-    IMU::Preintegrated *mpImuPreintegratedFromLastKF;
-    // Queue of IMU measurements between frames
-    std::list<IMU::Point> mlQueueImuData;
-    // Vector of IMU measurements from previous to current frame (to be filled by PreintegrateIMU)
-    std::vector<IMU::Point> mvImuFromLastFrame;
-    std::mutex mMutexImuQueue;
-    // Last Bias Estimation (at keyframe creation)
-    IMU::Bias mLastBias;
-
-    // Threshold close/far points
-    // Points seen as close by the stereo are considered reliable
-    // and inserted from just one frame. Far points requiere a match in two keyframes.
-    bool mInsertKFsLost;
-
-    //Current matches in frame
-    int mnMatchesInliers;
+    // Core tracking pipeline
+    void Track();  // Main tracking algorithm
+    void MonocularInitialization();  // Initialize map from monocular sequence
+    void CreateInitialMapMonocular();  // Create initial map points
     
-    //Motion Model
-    SE3f mVelocity;
+    // Frame processing
+    void CheckReplacedInLastFrame();  // Update replaced map points
+    bool TrackReferenceKeyFrame();  // Track against reference keyframe
+    bool TrackWithMotionModel();  // Track using constant velocity model
+    bool PredictStateIMU();  // Predict pose using IMU
+    bool Relocalization();  // Relocalize when tracking lost
+    
+    // Local mapping interface
+    void UpdateLocalMap();  // Update local map for tracking
+    void UpdateLocalPoints();  // Update local map points
+    void UpdateLocalKeyFrames();  // Update local keyframes
+    bool TrackLocalMap();  // Track against local map
+    void SearchLocalPoints();  // Find matches with local points
+    
+    // Keyframe management
+    bool NeedNewKeyFrame();  // Decide if new keyframe needed
+    void CreateNewKeyFrame();  // Create and insert new keyframe
+    
+    // IMU processing
+    void PreintegrateIMU();  // Preintegrate IMU from last frame
+    void ResetFrameIMU();  // Reset IMU biases and compute velocity
+    void InitializeIMU(float priorG = 1e2, float priorA = 1e6, bool bFirst = false);  // Initialize IMU parameters
+    void ScaleRefinement();  // Refine scale estimation
 
-    // IMU initialization variables
-    Eigen::Matrix3d mRwg;
-    Eigen::Vector3d mbg;
-    Eigen::Vector3d mba;
-    double mScale;
-    Eigen::MatrixXd infoInertial;
-    double mFirstTs;
-    bool bInitializing;
-    float mTinit;
-
-    //calibration 
-    IMU::Calib *mpImuCalib;
-    GeometricCamera* mpCamera;
+private:
+    // System components
+    System* mpSystem;
+    PPGExtractor* mpExtractor;  // Feature extractor
+    Map* mpMap;  // Global map
+    
+    // Local mapping
+    KeyFrame* mpReferenceKF;  // Reference keyframe
+    std::vector<KeyFrame*> mvpLocalKeyFrames;  // Local keyframes
+    std::vector<MapPoint*> mvpLocalMapPoints;  // Local map points
+    
+    // Tracking state
+    KeyFrame* mpLastKeyFrame;  // Last keyframe
+    unsigned int mnLastRelocFrameId;  // Last relocalization frame ID
+    double mTimeStampLost;  // Time when tracking was lost
+    bool mbMapUpdated;  // Map update flag
+    bool mbReadyToInitializate;  // Initialization ready flag
+    
+    // IMU data and processing
+    IMU::Preintegrated *mpImuPreintegratedFromLastKF;  // IMU preintegration
+    std::list<IMU::Point> mlQueueImuData;  // IMU measurement queue
+    std::vector<IMU::Point> mvImuFromLastFrame;  // IMU data between frames
+    std::mutex mMutexImuQueue;  // IMU queue mutex
+    IMU::Bias mLastBias;  // Last bias estimation
+    
+    // Motion model
+    SE3f mVelocity;  // Frame velocity
+    bool mInsertKFsLost;  // Insert keyframes when lost
+    int mnMatchesInliers;  // Current inlier matches
+    
+    // IMU initialization parameters
+    float mTinit;  // Initialization time
+    
+    // Calibration
+    IMU::Calib *mpImuCalib;  // IMU calibration
+    GeometricCamera* mpCamera;  // Camera model
 };
