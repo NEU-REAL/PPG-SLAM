@@ -47,6 +47,6 @@ IMU.GyroWalk: 9.798339194666108e-07 # rad/s^1.5
 IMU.AccWalk: 4.134509826460877e-06 # m/s^2.5
 IMU.Frequency: 250.0
 IMU.IniTime: 5. # second
-ViewCosTh: 0.95
+ViewCosTh: 0.99
 
 ActiveLoop: 0

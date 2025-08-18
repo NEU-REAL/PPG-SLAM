@@ -1,12 +1,11 @@
-include_directories(
-    include
-    ${OpenCV_INCLUDE_DIRS}
-)
-
-add_library(Sensors
-    include/GeometricCamera.h
+add_library(Sensors SHARED
+    src/GeometricCamera.cpp
     src/KannalaBrandt8.cpp
     src/Pinhole.cpp
     src/TwoViewReconstruction.cpp
     src/IMU.cpp 
+)
+
+target_link_libraries(Sensors
+    ${OpenCV_LIBS}
 )

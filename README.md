@@ -18,13 +18,15 @@ Different inter-frame feature matching methods and various structured landmarks 
 - Ubuntu 22.04
 - ROS-Humble
 
-### 2.2 Eigen && OpenCV && LibTorch
+### 2.2 Thirdparties
 
-Eigen >= 3.3.7,      Follow [Eigen Installation](https://eigen.tuxfamily.org/index.php?title=Main_Page).
+Eigen >= 3.3, Follow [Eigen Installation](https://eigen.tuxfamily.org/index.php?title=Main_Page).
 
-OpenCV >= 4.0.0,  Follow [Opencv Installation](http://opencv.org/).
+OpenCV >= 4.2.0, Follow [Opencv Installation](http://opencv.org/).
 
-LibTorch (CUDA >=12.6),  Follow [LibTorch Installation](https://pytorch.org/get-started/locally/).
+LibTorch (CUDA >=12.6), Follow [LibTorch Installation](https://pytorch.org/get-started/locally/).
+
+g2o (tag = 20241228_git), Follow[G2o Installation](https://github.com/RainerKuemmerle/g2o).
 
 ## 3. Build
 
@@ -34,8 +36,11 @@ Clone the repository and colcon build:
 mkdir -p ws_ppgslam/src
 cd ~/ws_ppgslam/src
 git clone https://github.com/NEU-REAL/PPG-SLAM
-cd ../
-colcon build
+cd PPG-SLAM
+mkdir build
+cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j4
 ```
 
 ## 4. Run the package
@@ -60,7 +65,7 @@ Working with open access datasets. We provide tools for [EuRoC MAV](http://robot
 We have provided a version not under ROS, which can be switched by:
 
 ```
-git checkout UI
+git checkout ui
 ```
 
 

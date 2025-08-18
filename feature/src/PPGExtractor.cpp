@@ -1,158 +1,174 @@
-// 使用cpu 分析，速度太慢了，放弃
+/**
+ * @file PPGExtractor.cpp
+ * @brief Implementation of Point-Point-Line Graph (PPG) feature extractor
+ */
+
 #include "PPGExtractor.h"
+
+// ==================== SYSTEM INCLUDES ====================
 #include <map>
 #include <unistd.h>
-#include "iostream"
+#include <iostream>
+
+// ==================== THIRD-PARTY INCLUDES ====================
 #include <opencv2/core/eigen.hpp>
 #include <torch/nn/functional.h>
 
-// 以下表值受线段长度等级影响
-// 每个先端采样数量
-const float invSampleGapTable[4] = {0.3333, 0.200, 0.1427, 0.1111}; // 1/3 1/5 1/7 1/9 (1/pix)
-// 每个点的环形采样
-const int circleTableL[4] = {1,8,12,16};
-const int circleTableX[4][16]={{ 0 }, { 1, 1, 1, 0,-1,-1,-1, 0},
-                          { 0, 1, 2, 2, 2, 1, 0,-1,-2,-2,-2,-1},
-                          { 0, 1, 2, 3, 3, 3, 2, 1, 0,-1,-2,-3,-3,-3,-2,-1}};
-const int circleTableY[4][16]={{ 0 }, {-1, 0, 1, 1, 1, 0,-1,-1},
-                          { 2, 2, 1, 0,-1,-2,-2,-2,-1, 0, 1, 2},
-                          {-3,-3,-2,-1, 0, 1, 2, 3, 3, 3, 2, 1, 0,-1,-2,-3}};
+// ==================== SAMPLING CONFIGURATION ====================
+/// Inverse sampling gap for different line length levels (1/pixels)
+const float invSampleGapTable[4] = {0.3333, 0.200, 0.1427, 0.1111}; // 1/3, 1/5, 1/7, 1/9
 
-torch::Device PPGExtractor::dev = torch::Device(torch::kCUDA,0);
+/// Number of points in circular sampling patterns for different radii
+const int circleTableL[4] = {1, 8, 12, 16};
 
+/// X coordinates for circular sampling patterns
+const int circleTableX[4][16] = {
+    { 0 }, 
+    { 1, 1, 1, 0,-1,-1,-1, 0},
+    { 0, 1, 2, 2, 2, 1, 0,-1,-2,-2,-2,-1},
+    { 0, 1, 2, 3, 3, 3, 2, 1, 0,-1,-2,-3,-3,-3,-2,-1}
+};
+
+/// Y coordinates for circular sampling patterns  
+const int circleTableY[4][16] = {
+    { 0 }, 
+    {-1, 0, 1, 1, 1, 0,-1,-1},
+    { 2, 2, 1, 0,-1,-2,-2,-2,-1, 0, 1, 2},
+    {-3,-3,-2,-1, 0, 1, 2, 3, 3, 3, 2, 1, 0,-1,-2,-3}
+};
+
+// ==================== STATIC MEMBER DEFINITIONS ====================
+torch::Device PPGExtractor::dev = torch::Device(torch::kCUDA, 0);
+
+// Feature extraction parameters
 int             PPGExtractor::DESC_DIM_SIZE = 256;
-float           PPGExtractor::JUNCTION_THRESH = 1. / 128.;
+float           PPGExtractor::JUNCTION_THRESH = 1.0f / 128.0f;
 int             PPGExtractor::JUNCTION_NMS_RADIUS = 4;
 unsigned int    PPGExtractor::JUNCTION_MAX_NUM = 500;
-float           PPGExtractor::LINE_VALID_THRESH = 1.e-2;
-float           PPGExtractor::LINE_VALID_RATIO = 0.3;
-float        	PPGExtractor::LINE_DISTTHRESH = 2.;
+float           PPGExtractor::LINE_VALID_THRESH = 1.0e-2f;
+float           PPGExtractor::LINE_VALID_RATIO = 0.3f;
+float           PPGExtractor::LINE_DISTTHRESH = 2.0f;
 int             PPGExtractor::HEATMAP_REFINE_SZ = 16;
-float           PPGExtractor::LINE_HEATMAP_THRESH = 0.2;
-float           PPGExtractor::LINE_INLIER_RATE = 0.8;
-int             PPGExtractor::OPTIMIZE_ITER_NUM = 4;
-float        PPGExtractor::OPTIMIZE_ITER_DECAY = 0.6;
-
+float           PPGExtractor::LINE_HEATMAP_THRESH = 0.2f;
+float           PPGExtractor::LINE_INLIER_RATE = 0.8f;
 
 PPGExtractor::PPGExtractor(GeometricCamera *pCam, std::string dataPath)
 {
-	mK = pCam->toK();
-	mD = pCam->toD();
-	mnImWidth = pCam->imWidth();
-	mnImHeight = pCam->imHeight();
-	mbFisheye = (pCam->mnType ==pCam->CAM_FISHEYE);
+    // ==================== CAMERA INITIALIZATION ====================
+    mK = pCam->toK();
+    mD = pCam->toD();
+    mnImWidth = pCam->imWidth();
+    mnImHeight = pCam->imHeight();
+    mbFisheye = (pCam->mnType == pCam->CAM_FISHEYE);
 
-	if(mbFisheye)
-		cv::fisheye::initUndistortRectifyMap(mK, mD, cv::Mat::eye(3,3,CV_32F), mK, 
-								cv::Size(mnImWidth, mnImHeight), CV_32F, mX, mY);
-	else
-		cv::initUndistortRectifyMap(mK, mD, cv::Mat::eye(3,3,CV_32F), mK, 
-								cv::Size(mnImWidth, mnImHeight), CV_32F, mX, mY);
+    // Initialize undistortion maps based on camera type
+    if(mbFisheye) {
+        cv::fisheye::initUndistortRectifyMap(mK, mD, cv::Mat::eye(3,3,CV_32F), mK, 
+                                cv::Size(mnImWidth, mnImHeight), CV_32F, mX, mY);
+    } else {
+        cv::initUndistortRectifyMap(mK, mD, cv::Mat::eye(3,3,CV_32F), mK, 
+                                cv::Size(mnImWidth, mnImHeight), CV_32F, mX, mY);
+    }
 
-	invScale = 1.0/sqrt(mnImHeight* mnImHeight + mnImWidth* mnImWidth);
-	//加载模型
-	model_backbone = torch::jit::load(dataPath+"/Backbone.pt");
-	model_descriptor = torch::jit::load(dataPath+"/Descriptor.pt");
-	model_junction = torch::jit::load(dataPath+"/PointHeatmap.pt");
-	model_heatmap = torch::jit::load(dataPath+"/EdgeHeatmap.pt");
+    // Calculate inverse scale factor for normalization
+    invScale = 1.0f / std::sqrt(static_cast<float>(mnImHeight * mnImHeight + mnImWidth * mnImWidth));
+    
+    // ==================== MODEL LOADING ====================
+    model_backbone = torch::jit::load(dataPath + "/Backbone.pt");
+    model_descriptor = torch::jit::load(dataPath + "/Descriptor.pt");
+    model_junction = torch::jit::load(dataPath + "/PointHeatmap.pt");
+    model_heatmap = torch::jit::load(dataPath + "/EdgeHeatmap.pt");
 
-    // 把模型放在gpu上
-	model_backbone.to(dev);
-	model_descriptor.to(dev);
-	model_junction.to(dev);
-	model_heatmap.to(dev);
+    // Move models to GPU
+    model_backbone.to(dev);
+    model_descriptor.to(dev);
+    model_junction.to(dev);
+    model_heatmap.to(dev);
 
-    // 固定
-	model_backbone.eval();
-	model_descriptor.eval();
-	model_junction.eval();
-	model_heatmap.eval();
+    // Set models to evaluation mode
+    model_backbone.eval();
+    model_descriptor.eval();
+    model_junction.eval();
+    model_heatmap.eval();
 
-	// model_1 = torch::jit::load(dataPath+"/SOLD2Net_backbone.pt");
-	// model_2 = torch::jit::load(dataPath+"/SOLD2Net_heatmap.pt");
-	// model_1.to(dev);
-	// model_2.to(dev);
-	// model_1.eval();
-	// model_2.eval();
-
-	// super nms
-	nmsFlag = (unsigned char*)std::malloc(mnImWidth * mnImHeight);
-	// warm up GPU
-    cv::Mat image = cv::Mat::ones(mnImHeight,mnImWidth,CV_8UC1);
-	input_tensor = torch::from_blob(image.data, {1, 1, image.rows, image.cols}, torch::kByte).to(dev).toType(torch::kFloat32)/ 225.0;
-	featureMap = model_backbone.forward({input_tensor}).toTensor();
-	junctions = model_junction.forward({featureMap}).toTensor();
-	descriptors = model_descriptor.forward({featureMap}).toTensor();
-	heatmap = model_heatmap.forward({featureMap}).toTensor();
-
-	// featureMap2 = model_1.forward({input_tensor}).toTensor();
-	// torch::Tensor ts2 = model_2.forward({featureMap2}).toTensor();
+    // ==================== MEMORY ALLOCATION ====================
+    // Allocate memory for non-maximum suppression flags
+    nmsFlag = static_cast<unsigned char*>(std::malloc(mnImWidth * mnImHeight));
+    
+    // ==================== GPU WARM-UP ====================
+    // Perform GPU warm-up to avoid initial inference delays
+    cv::Mat warmupImage = cv::Mat::ones(mnImHeight, mnImWidth, CV_8UC1);
+    input_tensor = torch::from_blob(warmupImage.data, {1, 1, warmupImage.rows, warmupImage.cols}, 
+                                   torch::kByte).to(dev).toType(torch::kFloat32) / 255.0f;
+    featureMap = model_backbone.forward({input_tensor}).toTensor();
+    junctions = model_junction.forward({featureMap}).toTensor();
+    descriptors = model_descriptor.forward({featureMap}).toTensor();
+    heatmap = model_heatmap.forward({featureMap}).toTensor();
 }
 
 PPGExtractor::~PPGExtractor()
 {
+    // Free allocated memory for NMS flags
+    if (nmsFlag) {
+        std::free(nmsFlag);
+        nmsFlag = nullptr;
+    }
 }
 
-void PPGExtractor::run(cv::Mat srcMat, std::vector<KeyPointEx>& _keypoints, std::vector<KeyPointEx>& _keypoints_un, std::vector<KeyEdge>& _keyedges, cv::Mat &_descriptors)
+void PPGExtractor::run(cv::Mat srcMat, std::vector<KeyPointEx>& _keypoints, std::vector<KeyPointEx>& _keypoints_un, 
+                       std::vector<KeyEdge>& _keyedges, cv::Mat &_descriptors)
 {
-	assert(srcMat.channels()==1); //只支持单通道数据
-	inference(srcMat);
-	torch::cuda::synchronize();
-	detectKeyPoint();
-	// std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
-	detectLines();
-	// optimizeJunctions();
-	// std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
-	// double ttrack= std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count();
-	// std::cout << "detect lines time: " << ttrack << std::endl;
-	genPointDescriptor();
+    assert(srcMat.channels() == 1); // Only single-channel images are supported
+    
+    // Perform neural network inference
+    inference(srcMat);
+    torch::cuda::synchronize();
+    detectKeyPoint();
+    detectLines();
+    genPointDescriptor();
 
-	_keypoints = mvKeyPoints;
-	_keyedges = mvKeyEdges;
-	unsigned int pointSize = mvKeyPoints.size();
-	_descriptors = cv::Mat(pointSize, DESC_DIM_SIZE, CV_32FC1);
-	for(unsigned int i=0; i<pointSize; i++)
-	{
-		float *ptr_p = _descriptors.ptr<float>(i);
-		void* ptr_desc = normDesc[i].data_ptr();
-		std::memcpy((void*)ptr_p, ptr_desc, DESC_DIM_SIZE*sizeof(float));
-	}
+    _keypoints = mvKeyPoints;
+    _keyedges = mvKeyEdges;
+    unsigned int pointSize = mvKeyPoints.size();
+    _descriptors = cv::Mat(pointSize, DESC_DIM_SIZE, CV_32FC1);
+    for(unsigned int i=0; i<pointSize; i++)
+    {
+        float *ptr_p = _descriptors.ptr<float>(i);
+        void* ptr_desc = normDesc[i].data_ptr();
+        std::memcpy((void*)ptr_p, ptr_desc, DESC_DIM_SIZE*sizeof(float));
+    }
 
-	if(!mbFisheye)
-	{
-		for(unsigned int jid=0; jid< pointSize; jid++)
-			_keypoints[jid].mPos = _keypoints[jid].mPosUn;
-	}
-	_keypoints_un = _keypoints;
+    if(!mbFisheye)
+    {
+        for(unsigned int jid=0; jid< pointSize; jid++)
+            _keypoints[jid].mPos = _keypoints[jid].mPosUn;
+    }
+    _keypoints_un = _keypoints;
 }
 
 void PPGExtractor::inference(cv::Mat src)
 {
-	input_tensor = torch::from_blob(src.data, {1, 1, src.rows, src.cols}, torch::kByte).to(dev).toType(torch::kFloat32)/ 255.0;
-	featureMap = model_backbone.forward({input_tensor}).toTensor();
-	junctions = model_junction.forward({featureMap}).toTensor();
-	heatmap = model_heatmap.forward({featureMap}).toTensor();
-	descriptors = model_descriptor.forward({featureMap}).toTensor();
-
-	// featureMap2 = model_1.forward({input_tensor}).toTensor();
-	// heatmap = model_2.forward({featureMap2}).toTensor();
+    input_tensor = torch::from_blob(src.data, {1, 1, src.rows, src.cols}, torch::kByte).to(dev).toType(torch::kFloat32)/ 255.0;
+    featureMap = model_backbone.forward({input_tensor}).toTensor();
+    junctions = model_junction.forward({featureMap}).toTensor();
+    heatmap = model_heatmap.forward({featureMap}).toTensor();
+    descriptors = model_descriptor.forward({featureMap}).toTensor();
 }
 
 void PPGExtractor::detectKeyPoint()
 {
     // non maximum suppression #cpu#
-	torch::Tensor junc_norm = torch::softmax(junctions, 1);
+    torch::Tensor junc_norm = torch::softmax(junctions, 1);
     junc_pred = torch::pixel_shuffle(junc_norm.narrow(1,0,64),8)[0][0].cpu();
-	assert(mnImHeight == junc_pred.size(0) && mnImWidth == junc_pred.size(1));
+    assert(mnImHeight == junc_pred.size(0) && mnImWidth == junc_pred.size(1));
 
-	tensorAccer2d j_ptr = junc_pred.accessor<float,2>();
-
-	std::vector<std::tuple<unsigned int, unsigned int, float>> pointWithScore;
-	pointWithScore.reserve(0.2*mnImHeight*mnImWidth);
-	for(int i=0;i< mnImHeight; i++)
-	{
-		for(int j=0;j< mnImWidth; j++)
-		{
+    TensorAccessor2D j_ptr = junc_pred.accessor<float,2>();
+    std::vector<std::tuple<unsigned int, unsigned int, float>> pointWithScore;
+    pointWithScore.reserve(0.2*mnImHeight*mnImWidth);
+    for(int i=0;i< mnImHeight; i++)
+    {
+        for(int j=0;j< mnImWidth; j++)
+        {
 			float thisScore = j_ptr[i][j];
 			if(thisScore < JUNCTION_THRESH)
 				continue;
@@ -211,10 +227,8 @@ void PPGExtractor::detectKeyPoint()
 	{
 		float u = mat.at<float>(i,0);
 		float v = mat.at<float>(i,1);
-		if(u>=1 && u < mnImWidth-1 && v>=1 && v<mnImHeight-1) // 1 is the border of edge mat
+		if(u>=1 && u < mnImWidth-1 && v>=1 && v<mnImHeight-1)
 			mvKeyPoints[i].mbOut = false;
-		else
-			mvKeyPoints[i].mbOut = true;
 		mvKeyPoints[i].mPosUn << mat.at<float>(i,0),  mat.at<float>(i,1);
 	}
 }
@@ -369,25 +383,12 @@ void PPGExtractor::detectLines()
 			kl.isBad = true;
 			continue;
 		}
-		kl.lscore = scoreInlier * scoreHeatmap;
-		mvConnected[kl.startIdx].push_back(i);
-		mvConnected[kl.endIdx].push_back(i);
-	}
-	// // 排序并保留最优6条线
-	// const unsigned int MAX_LINE_COUNT = 4;
-	// for(std::vector<unsigned int> &thisIndices : mvConnected)
-	// {
-	// 	if(thisIndices.empty() || thisIndices.size()<=MAX_LINE_COUNT)
-	// 		continue;
-	// 	std::sort(thisIndices.begin(), thisIndices.end(), 
-	// 		[&](unsigned int i, unsigned int j){return candidateLines[i].lscore > candidateLines[j].lscore;});
-	// 	while (thisIndices.size() > MAX_LINE_COUNT)
-	// 	{
-	// 		candidateLines[thisIndices.back()].isBad = true;
-	// 		thisIndices.pop_back();
-	// 	}
-	// }
-	// 搜索共线关系
+        kl.lscore = scoreInlier * scoreHeatmap;
+        mvConnected[kl.startIdx].push_back(i);
+        mvConnected[kl.endIdx].push_back(i);
+    }
+    
+    // Search for collinear relationships
 	for(unsigned int p_id=0; p_id<mvConnected.size(); p_id++)
 	{
 		std::vector<unsigned int> thisIndices = mvConnected[p_id];
@@ -511,103 +512,80 @@ float PPGExtractor::heatMapLineScore(const Eigen::Vector2f &ps, const Eigen::Vec
 	return sumScore/(float)(segNum-1);
 }
 
-void PPGExtractor::optimizeJunctions()
-{
-	for(unsigned int pid=0;pid<mvKeyPoints.size();pid++)
-	{
-		mvKeyPoints[pid].mfScore = connectedLineScore(pid);
-		int iterNum = OPTIMIZE_ITER_NUM;
-		float iterStep = 2;
-		while(iterNum--)
-		{
-			KeyPointEx &kp =mvKeyPoints[pid];
-			// right
-			kp.updatePreturb(iterStep,0, connectedLineScore(pid,iterStep,0));
-			// left
-			kp.updatePreturb(-iterStep,0, connectedLineScore(pid,-iterStep,0));
-			// down
-			kp.updatePreturb(0,iterStep, connectedLineScore(pid,0,iterStep));
-			// up
-			kp.updatePreturb(0,-iterStep, connectedLineScore(pid,0,-iterStep));
-			iterStep *= OPTIMIZE_ITER_DECAY;
-		}
-	}
-}
-
 void PPGExtractor::genPointDescriptor()
 {
-	// 准备描述子采样点
-	int allPointNum = mvKeyPoints.size();
+    // Prepare descriptor sampling points
+    int allPointNum = mvKeyPoints.size();
 
-	if(allPointNum < 10) // 防止未检测出关键点
-	{
-		normDesc = torch::zeros({allPointNum,DESC_DIM_SIZE},torch::kFloat);
-		return;
-	}
+    if(allPointNum < 10) // Prevent case when no keypoints are detected
+    {
+        normDesc = torch::zeros({allPointNum,DESC_DIM_SIZE},torch::kFloat);
+        return;
+    }
 
-	torch::Tensor allPoints = torch::zeros({1,allPointNum,1,2},torch::kFloat);
-	tensorAccer4d p_ptr = allPoints.accessor<float,4>();
-	for(unsigned int i=0; i< mvKeyPoints.size(); i++)
-	{
-		p_ptr[0][i][0][0] = mvKeyPoints[i].mPos[0] / (float)mnImWidth *2. -1.;
-		p_ptr[0][i][0][1] = mvKeyPoints[i].mPos[1] / (float)mnImHeight *2. -1.;
-	}
-	allPoints = allPoints.cuda();
-	torch::Tensor sampleVal = torch::squeeze(torch::grid_sampler(descriptors,allPoints,0,0,false)).permute({1,0});
-	torch::Tensor normalizedVal = torch::nn::functional::normalize(sampleVal,
-								  torch::nn::functional::NormalizeFuncOptions().dim(1));
-	normDesc = normalizedVal.contiguous().cpu();
+    torch::Tensor allPoints = torch::zeros({1,allPointNum,1,2},torch::kFloat);
+    TensorAccessor4D p_ptr = allPoints.accessor<float,4>();
+    for(unsigned int i=0; i< mvKeyPoints.size(); i++)
+    {
+        p_ptr[0][i][0][0] = mvKeyPoints[i].mPos[0] / (float)mnImWidth *2. -1.;
+        p_ptr[0][i][0][1] = mvKeyPoints[i].mPos[1] / (float)mnImHeight *2. -1.;
+    }
+    allPoints = allPoints.cuda();
+    torch::Tensor sampleVal = torch::squeeze(torch::grid_sampler(descriptors,allPoints,0,0,false)).permute({1,0});
+    torch::Tensor normalizedVal = torch::nn::functional::normalize(sampleVal,
+                                  torch::nn::functional::NormalizeFuncOptions().dim(1));
+    normDesc = normalizedVal.contiguous().cpu();
 }
 
 void PPGExtractor::refineHeatMap(torch::Tensor &scoreMap)
 {
-	std::vector<float> heatmapVal;
-	tensorAccer2d s_ptr = scoreMap.accessor<float,2>();
-	int segHeight = scoreMap.size(0);
-	int segWidth = scoreMap.size(1);
-	for(int i=0; i<segHeight; i++)
-	{
-		for(int j=0; j<segWidth;j++)
-		{
-			if(s_ptr[i][j] > LINE_VALID_THRESH)
-				heatmapVal.push_back(s_ptr[i][j]);
-		}
-	}
-	int valCount = LINE_VALID_RATIO * heatmapVal.size();
-	if(valCount<1)
-		return;
-	if(heatmapVal.size() >=segHeight * segWidth * 0.9 && heatmapVal[heatmapVal.size()*0.9] > 0.1)
-	{
-		scoreMap.fill_(0);
-		return;
-	}
-	std::sort(heatmapVal.begin(),heatmapVal.end(),[](float a,float b){return a>b;});
-	float aveVal = std::accumulate(heatmapVal.begin(), heatmapVal.begin()+valCount, 0.0)/(float)valCount;
-	for(int i=0; i<segHeight; i++)
-	{
-		for(int j=0; j<segWidth;j++)
-		{
-			float curScore = s_ptr[i][j];
-			if(curScore > LINE_VALID_THRESH)
-			{
-				float newScore = s_ptr[i][j] / aveVal;
-				s_ptr[i][j] = newScore >1.0 ? 1.0:newScore;
-			}
-			else
-				s_ptr[i][j] = 0;
-		}
-	}
+    std::vector<float> heatmapVal;
+    TensorAccessor2D s_ptr = scoreMap.accessor<float,2>();
+    int segHeight = scoreMap.size(0);
+    int segWidth = scoreMap.size(1);
+    for(int i=0; i<segHeight; i++)
+    {
+        for(int j=0; j<segWidth;j++)
+        {
+            if(s_ptr[i][j] > LINE_VALID_THRESH)
+                heatmapVal.push_back(s_ptr[i][j]);
+        }
+    }
+    int valCount = LINE_VALID_RATIO * heatmapVal.size();
+    if(valCount<1)
+        return;
+    if(heatmapVal.size() >=segHeight * segWidth * 0.9 && heatmapVal[heatmapVal.size()*0.9] > 0.1)
+    {
+        scoreMap.fill_(0);
+        return;
+    }
+    std::sort(heatmapVal.begin(),heatmapVal.end(),[](float a,float b){return a>b;});
+    float aveVal = std::accumulate(heatmapVal.begin(), heatmapVal.begin()+valCount, 0.0)/(float)valCount;
+    for(int i=0; i<segHeight; i++)
+    {
+        for(int j=0; j<segWidth;j++)
+        {
+            float curScore = s_ptr[i][j];
+            if(curScore > LINE_VALID_THRESH)
+            {
+                float newScore = s_ptr[i][j] / aveVal;
+                s_ptr[i][j] = newScore >1.0 ? 1.0:newScore;
+            }
+            else
+                s_ptr[i][j] = 0;
+        }
+    }
 }
 
 float PPGExtractor::bilinearInterpolation(const Eigen::MatrixXf &M, float ptX, float ptY)
 {
-	int x1 = (int)ptX;
-	int x2 = x1 + 1;
-	int y1 = (int)ptY;
-	int y2 = y1 + 1;
-	float data1 = (x2 - ptX) * M(y1, x1) + (ptX - x1) * M(y1, x2);
-	float data2 = (x2 - ptX) * M(y2, x1) + (ptX - x1) * M(y2, x2);
-	return (y2 - ptY) * data1 + (ptY - y1) * data2;
+    int x1 = (int)ptX;
+    int x2 = x1 + 1;
+    int y1 = (int)ptY;
+    int y2 = y1 + 1;
+    float data1 = (x2 - ptX) * M(y1, x1) + (ptX - x1) * M(y1, x2);
+    float data2 = (x2 - ptX) * M(y2, x1) + (ptX - x1) * M(y2, x2);
+    return (y2 - ptY) * data1 + (ptY - y1) * data2;
 }
 
 void PPGExtractor::showTensor(const torch::Tensor& ts)

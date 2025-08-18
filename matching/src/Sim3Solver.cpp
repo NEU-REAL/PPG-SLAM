@@ -1,3 +1,8 @@
+/**
+ * @file Sim3Solver.cpp
+ * @brief Implementation of Similarity transformation solver for loop closure
+ */
+
 #include <cstdlib>
 #include <vector>
 #include <cmath>
@@ -10,23 +15,41 @@
 #include "KannalaBrandt8.h"
 #include "Pinhole.h"
 
-Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, GeometricCamera* pCam, const vector<MapPoint *> &vpMatched12, const bool bFixScale,
-                       vector<KeyFrame*> vpKeyFrameMatchedMP): mnIterations(0), mnBestInliers(0), mbFixScale(bFixScale), mpCamera(pCam)
+/**
+ * @brief Constructor - Initialize Sim3 solver with keyframe correspondences
+ * @param pKF1 First keyframe (reference)
+ * @param pKF2 Second keyframe (target)
+ * @param pCam Camera model for reprojection
+ * @param vpMatched12 Matched map points from KF1 to KF2
+ * @param bFixScale Whether to fix scale to 1 (stereo/RGB-D case)
+ * @param vpKeyFrameMatchedMP Optional keyframes observing matched points
+ * 
+ * Extracts 3D-3D correspondences and transforms them to camera coordinates
+ * for Sim3 computation. Handles both fixed-scale and free-scale scenarios.
+ */
+Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, GeometricCamera* pCam, 
+                       const std::vector<MapPoint *> &vpMatched12, const bool bFixScale,
+                       std::vector<KeyFrame*> vpKeyFrameMatchedMP)
+    : mnIterations(0), mnBestInliers(0), mbFixScale(bFixScale), mpCamera(pCam)
 {
+    /**
+     * Handle keyframe association for matched points
+     * Default to pKF2 if no specific keyframes provided
+     */
     bool bDifferentKFs = false;
-    if(vpKeyFrameMatchedMP.empty())
+    if (vpKeyFrameMatchedMP.empty())
     {
         bDifferentKFs = true;
-        vpKeyFrameMatchedMP = vector<KeyFrame*>(vpMatched12.size(), pKF2);
+        vpKeyFrameMatchedMP = std::vector<KeyFrame*>(vpMatched12.size(), pKF2);
     }
 
     mpKF1 = pKF1;
     mpKF2 = pKF2;
 
-    vector<MapPoint*> vpKeyFrameMP1 = pKF1->GetMapPointMatches();
-
+    std::vector<MapPoint*> vpKeyFrameMP1 = pKF1->GetMapPointMatches();
     mN1 = vpMatched12.size();
 
+    // Reserve memory for correspondence data
     mvpMapPoints1.reserve(mN1);
     mvpMapPoints2.reserve(mN1);
     mvpMatches12 = vpMatched12;
@@ -34,19 +57,23 @@ Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, GeometricCamera* pCam, co
     mvX3Dc1.reserve(mN1);
     mvX3Dc2.reserve(mN1);
 
+    // Get camera poses for coordinate transformation
     Eigen::Matrix3f Rcw1 = pKF1->GetRotation();
     Eigen::Vector3f tcw1 = pKF1->GetTranslation();
     Eigen::Matrix3f Rcw2 = pKF2->GetRotation();
     Eigen::Vector3f tcw2 = pKF2->GetTranslation();
 
     mvAllIndices.reserve(mN1);
+    size_t idx = 0;
+    KeyFrame* pKFm = pKF2; // Default keyframe for matched points
 
-    size_t idx=0;
-
-    KeyFrame* pKFm = pKF2; //Default variable
-    for(int i1=0; i1<mN1; i1++)
+    /**
+     * Extract valid 3D-3D correspondences
+     * Transform world coordinates to camera coordinates for both keyframes
+     */
+    for (int i1 = 0; i1 < mN1; i1++)
     {
-        if(vpMatched12[i1])
+        if (vpMatched12[i1])
         {
             MapPoint* pMP1 = vpKeyFrameMP1[i1];
             MapPoint* pMP2 = vpMatched12[i1];
@@ -116,10 +143,10 @@ void Sim3Solver::SetRansacParameters(double probability, int minInliers, int max
     mnIterations = 0;
 }
 
-Eigen::Matrix4f Sim3Solver::iterate(int nIterations, bool &bNoMore, vector<bool> &vbInliers, int &nInliers)
+Eigen::Matrix4f Sim3Solver::iterate(int nIterations, bool &bNoMore, std::vector<bool> &vbInliers, int &nInliers)
 {
     bNoMore = false;
-    vbInliers = vector<bool>(mN1,false);
+    vbInliers = std::vector<bool>(mN1,false);
     nInliers=0;
 
     if(N<mRansacMinInliers)
@@ -128,7 +155,7 @@ Eigen::Matrix4f Sim3Solver::iterate(int nIterations, bool &bNoMore, vector<bool>
         return Eigen::Matrix4f::Identity();
     }
 
-    vector<size_t> vAvailableIndices;
+    std::vector<size_t> vAvailableIndices;
 
     Eigen::Matrix3f P3Dc1i;
     Eigen::Matrix3f P3Dc2i;
@@ -185,11 +212,11 @@ Eigen::Matrix4f Sim3Solver::iterate(int nIterations, bool &bNoMore, vector<bool>
     return Eigen::Matrix4f::Identity();
 }
 
-Eigen::Matrix4f Sim3Solver::iterate(int nIterations, bool &bNoMore, vector<bool> &vbInliers, int &nInliers, bool &bConverge)
+Eigen::Matrix4f Sim3Solver::iterate(int nIterations, bool &bNoMore, std::vector<bool> &vbInliers, int &nInliers, bool &bConverge)
 {
     bNoMore = false;
     bConverge = false;
-    vbInliers = vector<bool>(mN1,false);
+    vbInliers = std::vector<bool>(mN1,false);
     nInliers=0;
 
     if(N<mRansacMinInliers)
@@ -198,7 +225,7 @@ Eigen::Matrix4f Sim3Solver::iterate(int nIterations, bool &bNoMore, vector<bool>
         return Eigen::Matrix4f::Identity();
     }
 
-    vector<size_t> vAvailableIndices;
+    std::vector<size_t> vAvailableIndices;
 
     Eigen::Matrix3f P3Dc1i;
     Eigen::Matrix3f P3Dc2i;
@@ -263,7 +290,7 @@ Eigen::Matrix4f Sim3Solver::iterate(int nIterations, bool &bNoMore, vector<bool>
     return bestSim3;
 }
 
-Eigen::Matrix4f Sim3Solver::find(vector<bool> &vbInliers12, int &nInliers)
+Eigen::Matrix4f Sim3Solver::find(std::vector<bool> &vbInliers12, int &nInliers)
 {
     bool bFlag;
     return iterate(mRansacMaxIts,bFlag,vbInliers12,nInliers);
@@ -283,6 +310,18 @@ void Sim3Solver::ComputeSim3(Eigen::Matrix3f &P1, Eigen::Matrix3f &P2)
     // Custom implementation of:
     // Horn 1987, Closed-form solution of absolute orientataion using unit quaternions
 
+    // Input validation
+    if (!P1.allFinite() || !P2.allFinite()) {
+        std::cout << "Warning: Invalid input points in ComputeSim3" << std::endl;
+        mR12i = Eigen::Matrix3f::Identity();
+        ms12i = 1.0f;
+        mt12i = Eigen::Vector3f::Zero();
+        
+        mT12i.setIdentity();
+        mT21i.setIdentity();
+        return;
+    }
+
     // Step 1: Centroid and relative coordinates
 
     Eigen::Matrix3f Pr1; // Relative coordinates to centroid (set 1)
@@ -293,9 +332,33 @@ void Sim3Solver::ComputeSim3(Eigen::Matrix3f &P1, Eigen::Matrix3f &P2)
     ComputeCentroid(P1,Pr1,O1);
     ComputeCentroid(P2,Pr2,O2);
 
+    // Validate centroids
+    if (!O1.allFinite() || !O2.allFinite() || !Pr1.allFinite() || !Pr2.allFinite()) {
+        std::cout << "Warning: Invalid centroids or relative coordinates in ComputeSim3" << std::endl;
+        mR12i = Eigen::Matrix3f::Identity();
+        ms12i = 1.0f;
+        mt12i = Eigen::Vector3f::Zero();
+        
+        mT12i.setIdentity();
+        mT21i.setIdentity();
+        return;
+    }
+
     // Step 2: Compute M matrix
 
     Eigen::Matrix3f M = Pr2 * Pr1.transpose();
+
+    // Validate M matrix
+    if (!M.allFinite()) {
+        std::cout << "Warning: Invalid M matrix in ComputeSim3" << std::endl;
+        mR12i = Eigen::Matrix3f::Identity();
+        ms12i = 1.0f;
+        mt12i = Eigen::Vector3f::Zero();
+        
+        mT12i.setIdentity();
+        mT21i.setIdentity();
+        return;
+    }
 
     // Step 3: Compute N matrix
     double N11, N12, N13, N14, N22, N23, N24, N33, N34, N44;
@@ -326,16 +389,67 @@ void Sim3Solver::ComputeSim3(Eigen::Matrix3f &P1, Eigen::Matrix3f &P2)
     Eigen::Vector4f eval = eigSolver.eigenvalues().real();
     Eigen::Matrix4f evec = eigSolver.eigenvectors().real(); //evec[0] is the quaternion of the desired rotation
 
+    // Check for valid eigenvalues and eigenvectors
+    if (!eval.allFinite() || !evec.allFinite()) {
+        std::cout << "Warning: Invalid eigenvalues or eigenvectors detected in Sim3 computation" << std::endl;
+        mR12i = Eigen::Matrix3f::Identity();
+        ms12i = 1.0f;
+        mt12i = Eigen::Vector3f::Zero();
+        
+        mT12i.setIdentity();
+        mT21i.setIdentity();
+        return;
+    }
+
     int maxIndex; // should be zero
     eval.maxCoeff(&maxIndex);
 
     Eigen::Vector3f vec = evec.block<3,1>(1,maxIndex); //extract imaginary part of the quaternion (sin*axis)
 
-    // Rotation angle. sin is the norm of the imaginary part, cos is the real part
-    double ang=atan2(vec.norm(),evec(0,maxIndex));
+    // Check for valid vector components
+    if (!vec.allFinite()) {
+        std::cout << "Warning: Invalid eigenvector detected in Sim3 computation" << std::endl;
+        mR12i = Eigen::Matrix3f::Identity();
+        ms12i = 1.0f;
+        mt12i = Eigen::Vector3f::Zero();
+        
+        mT12i.setIdentity();
+        mT21i.setIdentity();
+        return;
+    }
 
-    vec = 2*ang*vec/vec.norm(); //Angle-axis representation. quaternion angle is the half
-    mR12i = Sophus::SO3f::exp(vec).matrix();
+    // Rotation angle. sin is the norm of the imaginary part, cos is the real part
+    double vec_norm = vec.norm();
+    double real_part = evec(0,maxIndex);
+    
+    // Check for valid norm and real part
+    if (vec_norm < 1e-8 || !std::isfinite(real_part)) {
+        std::cout << "Warning: Degenerate quaternion in Sim3 computation (norm=" << vec_norm << ", real=" << real_part << ")" << std::endl;
+        mR12i = Eigen::Matrix3f::Identity();
+    } else {
+        double ang = atan2(vec_norm, real_part);
+        
+        // Check for valid angle
+        if (!std::isfinite(ang)) {
+            std::cout << "Warning: Invalid rotation angle in Sim3 computation" << std::endl;
+            mR12i = Eigen::Matrix3f::Identity();
+        } else {
+            vec = 2*ang*vec/vec_norm; //Angle-axis representation. quaternion angle is the half
+            
+            // Additional safety check before calling SO3f::exp
+            if (!vec.allFinite()) {
+                std::cout << "Warning: Invalid rotation vector before SO3::exp" << std::endl;
+                mR12i = Eigen::Matrix3f::Identity();
+            } else {
+                try {
+                    mR12i = SO3f::exp(vec).matrix();
+                } catch (const std::exception& e) {
+                    std::cout << "Warning: SO3::exp failed: " << e.what() << std::endl;
+                    mR12i = Eigen::Matrix3f::Identity();
+                }
+            }
+        }
+    }
 
     // Step 5: Rotate set 2
     Eigen::Matrix3f P3 = mR12i*Pr2;
@@ -381,7 +495,7 @@ void Sim3Solver::ComputeSim3(Eigen::Matrix3f &P1, Eigen::Matrix3f &P2)
 
 void Sim3Solver::CheckInliers()
 {
-    vector<Eigen::Vector2f> vP1im2, vP2im1;
+    std::vector<Eigen::Vector2f> vP1im2, vP2im1;
     Project(mvX3Dc2,vP2im1,mT12i,mpCamera);
     Project(mvX3Dc1,vP1im2,mT21i,mpCamera);
 
@@ -425,7 +539,7 @@ float Sim3Solver::GetEstimatedScale()
     return mBestScale;
 }
 
-void Sim3Solver::Project(const vector<Eigen::Vector3f> &vP3Dw, vector<Eigen::Vector2f> &vP2D, Eigen::Matrix4f Tcw, GeometricCamera* pCamera)
+void Sim3Solver::Project(const std::vector<Eigen::Vector3f> &vP3Dw, std::vector<Eigen::Vector2f> &vP2D, Eigen::Matrix4f Tcw, GeometricCamera* pCamera)
 {
     Eigen::Matrix3f Rcw = Tcw.block<3,3>(0,0);
     Eigen::Vector3f tcw = Tcw.block<3,1>(0,3);
@@ -441,7 +555,7 @@ void Sim3Solver::Project(const vector<Eigen::Vector3f> &vP3Dw, vector<Eigen::Vec
     }
 }
 
-void Sim3Solver::FromCameraToImage(const vector<Eigen::Vector3f> &vP3Dc, vector<Eigen::Vector2f> &vP2D, GeometricCamera* pCamera)
+void Sim3Solver::FromCameraToImage(const std::vector<Eigen::Vector3f> &vP3Dc, std::vector<Eigen::Vector2f> &vP2D, GeometricCamera* pCamera)
 {
     vP2D.clear();
     vP2D.reserve(vP3Dc.size());

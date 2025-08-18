@@ -1,9 +1,26 @@
+/**
+ * @file MLPnPsolver.cpp
+ * @brief Implementation of Maximum Likelihood Perspective-n-Point solver
+ */
+
 #include <Eigen/Sparse>
 #include "MLPnPsolver.h"
 #include "KannalaBrandt8.h"
 #include "Pinhole.h"
 
-MLPnPsolver::MLPnPsolver(const Frame &F, GeometricCamera* pCam, const vector<MapPoint *> &vpMapPointMatches) : mnInliersi(0), mnIterations(0), mnBestInliers(0), N(0), mpCamera(pCam)
+/**
+ * @brief Constructor - Initialize ML-PnP solver with frame correspondences
+ * @param F Frame containing 2D keypoints
+ * @param pCam Camera geometric model
+ * @param vpMapPointMatches Vector of 3D map point matches
+ * 
+ * Processes the input correspondences to extract:
+ * - Normalized bearing vectors from 2D image points
+ * - 3D world coordinates from map points
+ * - Valid correspondence indices for pose estimation
+ */
+MLPnPsolver::MLPnPsolver(const Frame &F, GeometricCamera* pCam, const vector<MapPoint *> &vpMapPointMatches) 
+    : mnInliersi(0), mnIterations(0), mnBestInliers(0), N(0), mpCamera(pCam)
 {
     mvpMapPointMatches = vpMapPointMatches;
     mvBearingVecs.reserve(F.mvpMapPoints.size());
@@ -17,46 +34,67 @@ MLPnPsolver::MLPnPsolver(const Frame &F, GeometricCamera* pCam, const vector<Map
     {
         MapPoint *pMP = vpMapPointMatches[i];
 
-        if (pMP)
+        if (pMP && !pMP->isBad())
         {
-            if (!pMP->isBad())
-            {
-                if (i >= F.mvKeysUn.size())
-                    continue;
-                const KeyPointEx &kp = F.mvKeysUn[i];
+            // Ensure valid keypoint index
+            if (i >= F.mvKeysUn.size())
+                continue;
+                
+            const KeyPointEx &kp = F.mvKeysUn[i];
 
-                mvP2D.push_back( cv::Point(kp.mPos[0], kp.mPos[1]) );
+            // Store 2D image coordinates
+            mvP2D.push_back(cv::Point(kp.mPos[0], kp.mPos[1]));
 
-                // Bearing vector should be normalized
-                Eigen::Vector3f eig_br = mpCamera->unproject(kp.mPos);
-                eig_br /= eig_br[2];
-                bearingVector_t br = eig_br.cast<double>();
-                mvBearingVecs.push_back(br);
+            /**
+             * Generate normalized bearing vector for ML-PnP
+             * The bearing vector represents the ray direction in camera coordinates
+             */
+            Eigen::Vector3f eig_br = mpCamera->unproject(kp.mPos);
+            eig_br /= eig_br[2];  // Normalize by z-component
+            bearingVector_t br = eig_br.cast<double>();
+            mvBearingVecs.push_back(br);
 
-                // 3D coordinates
-                Eigen::Matrix<float, 3, 1> posEig = pMP->GetWorldPos();
-                point_t pos(posEig(0), posEig(1), posEig(2));
-                mvP3Dw.push_back(pos);
+            // Store 3D world coordinates
+            Eigen::Matrix<float, 3, 1> posEig = pMP->GetWorldPos();
+            point_t pos(posEig(0), posEig(1), posEig(2));
+            mvP3Dw.push_back(pos);
 
-                mvKeyPointIndices.push_back(i);
-                mvAllIndices.push_back(idx);
-
-                idx++;
-            }
+            // Track correspondence indices
+            mvKeyPointIndices.push_back(i);
+            mvAllIndices.push_back(idx);
+            idx++;
         }
     }
 
+    // Update total correspondence count
+    N = mvBearingVecs.size();
     SetRansacParameters();
 }
 
-// RANSAC methods
+/**
+ * @brief Main RANSAC iteration loop for robust pose estimation
+ * @param nIterations Number of iterations to perform
+ * @param bNoMore Output: true if early termination conditions met
+ * @param vbInliers Output: inlier mask for best solution
+ * @param nInliers Output: number of inliers in best solution
+ * @param Tout Output: estimated camera pose transformation
+ * @return True if valid pose found, false otherwise
+ * 
+ * Implements RANSAC with ML-PnP as the core estimator:
+ * 1. Randomly sample minimum set of correspondences
+ * 2. Compute pose hypothesis using ML-PnP
+ * 3. Evaluate hypothesis by counting inliers
+ * 4. Refine best solution using all inliers
+ */
 bool MLPnPsolver::iterate(int nIterations, bool &bNoMore, vector<bool> &vbInliers, int &nInliers, Eigen::Matrix4f &Tout)
 {
+    // Initialize outputs
     Tout.setIdentity();
     bNoMore = false;
     vbInliers.clear();
     nInliers = 0;
 
+    // Check minimum requirements
     if (N < mRansacMinInliers)
     {
         bNoMore = true;
@@ -64,8 +102,8 @@ bool MLPnPsolver::iterate(int nIterations, bool &bNoMore, vector<bool> &vbInlier
     }
 
     vector<size_t> vAvailableIndices;
-
     int nCurrentIterations = 0;
+    
     while (mnIterations < mRansacMaxIts || nCurrentIterations < nIterations)
     {
         nCurrentIterations++;
@@ -154,6 +192,18 @@ bool MLPnPsolver::iterate(int nIterations, bool &bNoMore, vector<bool> &vbInlier
     return false;
 }
 
+/**
+ * @brief Configure RANSAC parameters for robust pose estimation
+ * @param probability Desired success probability (0.99 = 99% confidence)
+ * @param minInliers Minimum inliers required for valid solution
+ * @param maxIterations Maximum RANSAC iterations allowed
+ * @param minSet Minimum sample size for pose hypothesis
+ * @param epsilon Expected inlier ratio in good data
+ * @param th2 Squared pixel error threshold for inlier classification
+ * 
+ * Automatically adjusts parameters based on the number of correspondences
+ * and computes optimal iteration count using RANSAC theory.
+ */
 void MLPnPsolver::SetRansacParameters(double probability, int minInliers, int maxIterations, int minSet, float epsilon, float th2)
 {
     mRansacProb = probability;
@@ -162,11 +212,13 @@ void MLPnPsolver::SetRansacParameters(double probability, int minInliers, int ma
     mRansacEpsilon = epsilon;
     mRansacMinSet = minSet;
 
-    N = mvP2D.size(); // number of correspondences
-
+    N = mvP2D.size(); // Total number of correspondences
     mvbInliersi.resize(N);
 
-    // Adjust Parameters according to number of correspondences
+    /**
+     * Adaptive parameter adjustment based on data size
+     * Ensure minimum inliers is reasonable for the dataset
+     */
     int nMinInliers = N * mRansacEpsilon;
     if (nMinInliers < mRansacMinInliers)
         nMinInliers = mRansacMinInliers;
@@ -174,6 +226,7 @@ void MLPnPsolver::SetRansacParameters(double probability, int minInliers, int ma
         nMinInliers = minSet;
     mRansacMinInliers = nMinInliers;
 
+    // Adjust epsilon to be consistent with minimum inliers
     if (mRansacEpsilon < (float)mRansacMinInliers / N)
         mRansacEpsilon = (float)mRansacMinInliers / N;
 

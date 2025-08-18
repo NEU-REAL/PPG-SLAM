@@ -1,115 +1,93 @@
+/**
+ * @file LocalMapping.h
+ * @brief Local mapping module for PPG-SLAM system
+ * @details Processes keyframes, performs bundle adjustment, and maintains 
+ *          local map structure for visual-only and visual-inertial SLAM.
+ */
+
 #pragma once
 
 #include "KeyFrame.h"
-#include "LoopClosing.h"
-#include "Tracking.h"
 #include "Map.h"
 
 #include <mutex>
 #include <atomic>
+#include <thread>
+#include <list>
 
+// Forward declarations
 class System;
 class Tracking;
 class LoopClosing;
+class MapEdge;
 
+/**
+ * @class MSLocalMapping
+ * @brief Local mapping thread for real-time SLAM
+ * @details Singleton class that handles keyframe processing, bundle adjustment,
+ *          neighbor matching, and covisibility graph maintenance.
+ */
 class MSLocalMapping
 {
 public:
-    static MSLocalMapping& get()
-    {
+    /// Singleton access
+    static MSLocalMapping& get() {
         static MSLocalMapping single_instance;
         return single_instance;
     }
+    
 private:
     MSLocalMapping() = default;
-    ~MSLocalMapping()
-    {
-        mbFinishRequested = true;
-    }
-    MSLocalMapping(const MSLocalMapping& other) = delete;
-    MSLocalMapping& operator=(const MSLocalMapping& other) = delete;
-    static MSLocalMapping* singleViewing;
-    
+    ~MSLocalMapping() { mbFinishRequested.store(true); }
+    MSLocalMapping(const MSLocalMapping&) = delete;
+    MSLocalMapping& operator=(const MSLocalMapping&) = delete;
+
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-    void Launch(Map *pMap);
+    
+    // Core Functions
+    void Launch(Map *pMap);              ///< Initialize and launch thread
+    void Run();                          ///< Main processing loop
+    void InsertKeyFrame(KeyFrame *pKF);  ///< Insert keyframe for processing
+    void EmptyQueue();                   ///< Process all pending keyframes
+    bool CheckNewKeyFrames();            ///< Check if keyframes are waiting
 
-    // Main function
-    void Run();
+    // Thread Control
+    void RequestStop();                  ///< Request thread stop
+    void RequestReset();                 ///< Request system reset
+    bool Stop();                         ///< Perform stop operation
+    void Release();                      ///< Release from stopped state
+    bool isStopped();                    ///< Check if stopped
+    bool stopRequested();                ///< Check if stop requested
+    bool SetNotStop(bool flag);          ///< Prevent stopping during critical ops
+    void InterruptBA();                  ///< Interrupt bundle adjustment
+    void RequestFinish();                ///< Request thread termination
+    
+    bool mbLocalMappingIdle;             ///< Idle state flag
 
-    void InsertKeyFrame(KeyFrame *pKF);
-    void EmptyQueue();
+private:
+    // Internal Functions
+    void ProcessNewKeyFrame();           ///< Process next keyframe from queue
+    void SearchInNeighbors();            ///< Search matches in neighboring keyframes
+    void ResetIfRequested();             ///< Handle reset requests
 
-    // Thread Synch
-    void RequestStop();
-    void RequestReset();
-    bool Stop();
-    void Release();
-    bool isStopped();
-    bool stopRequested();
-    bool SetNotStop(bool flag);
+    // Member Variables
+    Map* mpMap;                          ///< Map being processed
+    KeyFrame *mpCurrentKeyFrame;         ///< Current keyframe
+    std::list<KeyFrame*> mlNewKeyFrames; ///< Keyframe processing queue
 
-    void InterruptBA();
+    // Thread Synchronization
+    std::mutex mMutexNewKFs;             ///< Keyframe queue mutex
+    std::mutex mMutexReset;              ///< Reset operation mutex
+    std::mutex mMutexStop;               ///< Stop operation mutex
+    
+    // Control Flags
+    std::atomic<bool> mbFinishRequested; ///< Thread termination request
+    bool mbResetRequested;               ///< Reset request flag
+    bool mbAbortBA;                      ///< Bundle adjustment abort flag
+    bool mbStopped;                      ///< Thread stopped flag
+    bool mbStopRequested;                ///< Stop request flag
+    bool mbNotStop;                      ///< Prevent stop flag
 
-    void RequestFinish();
-
-    int KeyframesInQueue()
-    {
-        unique_lock<std::mutex> lock(mMutexNewKFs);
-        return mlNewKeyFrames.size();
-    }
-
-    double GetCurrKFTime();
-    KeyFrame *GetCurrKF();
-
-    Eigen::Matrix3d mRwg;
-    Eigen::Vector3d mbg;
-    Eigen::Vector3d mba;
-    double mScale;
-    Eigen::MatrixXd infoInertial;
-    double mFirstTs;
-
-    bool bInitializing;
-
-    bool mbLocalMappingIdle;
-
-public:
-    bool CheckNewKeyFrames();
-    void ProcessNewKeyFrame();
-    void SearchInNeighbors();
-    void KeyFrameCulling();
-
-    System *mpSystem;
-
-    void ResetIfRequested();
-    bool mbResetRequested;
-    std::mutex mMutexReset;
-
-    std::atomic<bool> mbFinishRequested;
-
-    Map* mpMap;
-
-    std::list<KeyFrame *> mlNewKeyFrames;
-
-    KeyFrame *mpCurrentKeyFrame;
-
-    std::list<MapEdge *> mlpRecentAddedMapEdges;
-    std::list<MapColine *> mlpRecentAddedMapColines;
-
-    std::mutex mMutexNewKFs;
-
-    bool mbAbortBA;
-
-    bool mbStopped;
-    bool mbStopRequested;
-    bool mbNotStop;
-    std::mutex mMutexStop;
-
-
-    void InitializeIMU(float priorG = 1e2, float priorA = 1e6, bool bFirst = false);
-    void ScaleRefinement();
-
-    std::thread* mptLocalMapping;
-
-    float mTinit;
+    std::thread* mptLocalMapping;        ///< Local mapping thread pointer
 };

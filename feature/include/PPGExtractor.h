@@ -1,101 +1,148 @@
+/**
+ * @file PPGExtractor.h
+ * @brief Point-Point-Line Graph (PPG) feature extractor for SLAM
+ */
+
 #pragma once
+
+// ==================== SYSTEM INCLUDES ====================
+#include <string>
+#include <vector>
+
+// ==================== THIRD-PARTY INCLUDES ====================
 #include <torch/torch.h>
 #include <torch/script.h> 
 #include <opencv2/opencv.hpp>
 #include <Eigen/Eigen>
-#include <list>
-#include "KannalaBrandt8.h"
-#include "Pinhole.h"
+
+// ==================== LOCAL INCLUDES ====================
+#include "GeometricCamera.h"
 #include "PPGGraph.h"
 
-typedef at::TensorAccessor<float, 2UL, at::DefaultPtrTraits, signed long> tensorAccer2d;
-typedef at::TensorAccessor<float, 4UL, at::DefaultPtrTraits, signed long> tensorAccer4d;
+// ==================== TYPE DEFINITIONS ====================
+typedef at::TensorAccessor<float, 2UL, at::DefaultPtrTraits, signed long> TensorAccessor2D;
+typedef at::TensorAccessor<float, 4UL, at::DefaultPtrTraits, signed long> TensorAccessor4D;
 
+// ==================== FORWARD DECLARATIONS ====================
 class KeyEdge;
 class KeyPointEx;
 
+/**
+ * @class PPGExtractor
+ * @brief Deep learning-based point and line feature extractor using PyTorch
+ */
 class PPGExtractor
 {
 public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
+    // ==================== CONSTRUCTORS/DESTRUCTORS ====================
+
+    /// Constructor with model paths and camera
     PPGExtractor(GeometricCamera *pCam, std::string dataPath);
+    
+    /// Destructor
     ~PPGExtractor();
 
-    void run(cv::Mat srcMat, std::vector<KeyPointEx>& _keypoints, std::vector<KeyPointEx>& _keypoints_un, std::vector<KeyEdge>& _keyedges, cv::Mat &_descriptors);
+    // ==================== MAIN INTERFACE ====================
+    
+    /// Main extraction function that processes an image and returns features
+    void run(cv::Mat srcMat, std::vector<KeyPointEx>& _keypoints, std::vector<KeyPointEx>& _keypoints_un, 
+             std::vector<KeyEdge>& _keyedges, cv::Mat &_descriptors);
 
+    // ==================== PROCESSING PIPELINE ====================
+    
+    /// Performs neural network inference on undistorted image
     void inference(cv::Mat undistortedMat);
 
+    /// Detects junction points from heat map
     void detectKeyPoint();
 
+    /// Detects line segments from heat map
     void detectLines();
 
-    void optimizeJunctions();
-
-    void genDescriptor();
-
+    /// Generates point descriptors specifically
     void genPointDescriptor();
 
+    // ==================== UTILITY FUNCTIONS ====================
+    
+    /// Displays tensor for debugging purposes
     void showTensor(const torch::Tensor& ts);
 
+    // ==================== ACCESSOR FUNCTIONS ====================
+    
+    /// Get detected keypoints
+    const std::vector<KeyPointEx>& getKeyPoints() const { return mvKeyPoints; }
+    
+    /// Get detected line segments
+    const std::vector<KeyEdge>& getKeyEdges() const { return mvKeyEdges; }
+
 private:
+    // ==================== PRIVATE HELPER FUNCTIONS ====================
+    
+    /// Refines heat map using adaptive thresholding
     void refineHeatMap(torch::Tensor &scoreMap);
 
+    /// Performs bilinear interpolation on matrix
     float bilinearInterpolation(const Eigen::MatrixXf & M, float ptX, float ptY); 
 
+    /// Computes connected line score for junction optimization
     float connectedLineScore(unsigned int pid, float biax=0., float biay=0.);
 
+    /// Computes heat map score along line segment
     float heatMapLineScore(const Eigen::Vector2f &ps, const Eigen::Vector2f &pe);
 
+    /// Computes inlier rate along line segment
     float heatMapInlierRate(const Eigen::Vector2f &ps, const Eigen::Vector2f &pe);
 
 public:
-    std::vector<KeyPointEx> mvKeyPoints;
-    std::vector<KeyEdge> mvKeyEdges;
-    torch::Tensor normDesc;
+    // ==================== EXTRACTED FEATURES ====================
+    std::vector<KeyPointEx> mvKeyPoints;    ///< Detected junction points
+    std::vector<KeyEdge> mvKeyEdges;        ///< Detected line segments
+    torch::Tensor normDesc;                 ///< Normalized descriptors
 
-public:
-    static int          DESC_DIM_SIZE;            // 描述子维度
-    static float        JUNCTION_THRESH;          // 初步筛选junction的阈值
-    static int          JUNCTION_NMS_RADIUS;      // nms 的搜索半径
-    static unsigned int JUNCTION_MAX_NUM;		    // junction 最大数量，按照得分从大到小排序
-    static float        LINE_VALID_THRESH;        // 初步筛选heatmap的阈值
-    static float        LINE_VALID_RATIO;              // heatmap中线所在像素占图像比例
-    static float        LINE_DISTTHRESH;          // 判断直线是否重合，论文中给定的点到直线距离3像素
-    static int          HEATMAP_REFINE_SZ;        // 对heatmap均衡化，均衡化的网格大小
-    static float        LINE_HEATMAP_THRESH;       // 对sample点，阈值大于此才算是直线
-    static float        LINE_INLIER_RATE;         // 对所有sample点，要有rate%点被认为直线
-    static int          OPTIMIZE_ITER_NUM;        // 迭代次数
-    static float        OPTIMIZE_ITER_DECAY;    // 每次迭代步长衰减 
+    // ==================== CONFIGURATION PARAMETERS ====================
+    static int          DESC_DIM_SIZE;            ///< Descriptor dimension size
+    static float        JUNCTION_THRESH;          ///< Junction detection threshold
+    static int          JUNCTION_NMS_RADIUS;      ///< Non-maximum suppression radius for junctions
+    static unsigned int JUNCTION_MAX_NUM;         ///< Maximum number of junctions to detect
+    static float        LINE_VALID_THRESH;        ///< Line validation threshold
+    static float        LINE_VALID_RATIO;         ///< Minimum ratio of valid pixels for line detection
+    static float        LINE_DISTTHRESH;          ///< Distance threshold for line overlap detection
+    static int          HEATMAP_REFINE_SZ;        ///< Grid size for heat map refinement
+    static float        LINE_HEATMAP_THRESH;      ///< Heat map threshold for line validation
+    static float        LINE_INLIER_RATE;         ///< Required inlier rate for line segments
 
 private:
-// 原始数据
-    cv::Mat mImg;
-	torch::Tensor input_tensor;
-	torch::Tensor featureMap;
-	torch::Tensor junctions;
-	torch::Tensor heatmap;
-	torch::Tensor descriptors;
-// 后处理数据
-    torch::Tensor junc_pred;
-    torch::Tensor heatmap_score;
-    unsigned char *nmsFlag;
-// param
-    int mnImHeight,mnImWidth;
-	float invScale;
+    // ==================== NEURAL NETWORK MODELS ====================
+    torch::jit::Module model_backbone;      ///< Backbone feature extraction network
+    torch::jit::Module model_descriptor;    ///< Descriptor generation network
+    torch::jit::Module model_heatmap;       ///< Line heat map generation network
+    torch::jit::Module model_junction;      ///< Junction detection network
 
-    torch::jit::Module model_backbone;
-    torch::jit::Module model_descriptor;
-    torch::jit::Module model_heatmap;
-    torch::jit::Module model_junction;
+    // ==================== PROCESSING TENSORS ====================
+    torch::Tensor input_tensor;             ///< Input image tensor
+    torch::Tensor featureMap;               ///< Feature map from backbone
+    torch::Tensor junctions;                ///< Junction heat map
+    torch::Tensor heatmap;                  ///< Line heat map
+    torch::Tensor descriptors;              ///< Raw descriptors
+    torch::Tensor junc_pred;                ///< Processed junction predictions
+    torch::Tensor heatmap_score;            ///< Processed heat map scores
 
-    torch::jit::Module model_1;
-    torch::jit::Module model_2;
-    torch::Tensor featureMap2;
+    // ==================== CAMERA PARAMETERS ====================
+    bool mbFisheye;                         ///< Flag indicating fisheye camera model
+    cv::Mat mK;                             ///< Camera intrinsic matrix
+    cv::Mat mD;                             ///< Camera distortion coefficients
+    cv::Mat mX, mY;                         ///< Undistortion maps
+    int mnImHeight, mnImWidth;              ///< Image dimensions
+    float invScale;                         ///< Inverse scale factor
+
+    // ==================== PROCESSING DATA ====================
+    cv::Mat mImg;                           ///< Current input image
+    cv::Mat heatMat;                        ///< Heat map as OpenCV matrix
+    Eigen::MatrixXf eigenHeat;              ///< Heat map as Eigen matrix (undistorted)
+    unsigned char *nmsFlag;                 ///< Non-maximum suppression flags
     
-    static torch::Device dev;
-
-    bool mbFisheye;
-    cv::Mat mK, mD;
-    cv::Mat mX, mY;
-    cv::Mat heatMat;
-	Eigen::MatrixXf eigenHeat; // undistorted image
+    // ==================== STATIC CONFIGURATION ====================
+    static torch::Device dev;               ///< PyTorch device (CPU/GPU)
 };

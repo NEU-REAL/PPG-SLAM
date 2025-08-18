@@ -1,5 +1,13 @@
-// Camera model based on https://github.com/UZ-SLAMLab/ORB_SLAM3
+/**
+ * @file Pinhole.cpp
+ * @brief Standard pinhole camera model implementation
+ * @details Based on ORB-SLAM3 camera model implementation
+ */
+
 #include "Pinhole.h"
+#include "TwoViewReconstruction.h"
+
+// ==================== CONSTRUCTOR ====================
 
 Pinhole::Pinhole(const std::vector<float> &_vParameters, int width, int height, float fps)
     : GeometricCamera(_vParameters, width, height, fps)
@@ -8,7 +16,10 @@ Pinhole::Pinhole(const std::vector<float> &_vParameters, int width, int height, 
     mnType = CAM_PINHOLE;
     Eigen::Matrix3f eigenK = toK_();
     mpTvr = new TwoViewReconstruction(eigenK);
+    InitializeImageBounds();
 }
+
+// ==================== PROJECTION FUNCTIONS ====================
 
 Eigen::Vector2d Pinhole::project(const Eigen::Vector3d &v3D)
 {
@@ -44,11 +55,15 @@ Eigen::Matrix<double, 2, 3> Pinhole::projectJac(const Eigen::Vector3d &v3D)
     return Jac;
 }
 
+// ==================== SLAM FUNCTIONS ====================
+
 bool Pinhole::ReconstructWithTwoViews(const std::vector<KeyPointEx> &vKeys1, const std::vector<KeyPointEx> &vKeys2, const std::vector<int> &vMatches12,
-                                      Sophus::SE3f &T21, std::vector<cv::Point3f> &vP3D, std::vector<bool> &vbTriangulated)
+                                      SE3f &T21, std::vector<cv::Point3f> &vP3D, std::vector<bool> &vbTriangulated)
 {
     return mpTvr->Reconstruct(vKeys1, vKeys2, vMatches12, T21, vP3D, vbTriangulated);
 }
+
+// ==================== CAMERA PARAMETERS ====================
 
 cv::Mat Pinhole::toK()
 {
@@ -64,7 +79,7 @@ cv::Mat Pinhole::toD()
 
 int Pinhole::imWidth()
 {
-    return mnWdith;
+    return mnWidth;
 }
 int Pinhole::imHeight()
 {
@@ -78,10 +93,12 @@ Eigen::Matrix3f Pinhole::toK_()
     return K;
 }
 
+// ==================== SLAM FUNCTIONS ====================
+
 bool Pinhole::epipolarConstrain(const KeyPointEx &kp1, const KeyPointEx &kp2, const Eigen::Matrix3f &R12, const Eigen::Vector3f &t12)
 {
     // Compute Fundamental Matrix
-    Eigen::Matrix3f t12x = Sophus::SO3f::hat(t12);
+    Eigen::Matrix3f t12x = SO3f::hat(t12);
     Eigen::Matrix3f K1 = toK_();
     Eigen::Matrix3f K2 = toK_();
     Eigen::Matrix3f F12 = K1.transpose().inverse() * t12x * R12 * K2.inverse();

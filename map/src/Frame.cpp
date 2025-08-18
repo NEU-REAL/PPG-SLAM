@@ -1,5 +1,9 @@
-#include <thread>
+/**
+ * @file Frame.cpp
+ * @brief Frame class implementation
+ */
 
+#include <thread>
 #include "Frame.h"
 #include "MapPoint.h"
 #include "KeyFrame.h"
@@ -8,40 +12,72 @@
 #include "Pinhole.h"
 #include "Map.h"
 
-long unsigned int Frame::nNextId=0;
-bool Frame::mbInitialComputations=true;
-float Frame::mnMinX, Frame::mnMinY, Frame::mnMaxX, Frame::mnMaxY;
-float Frame::mfGridElementWidthInv, Frame::mfGridElementHeightInv;
+// ==================== STATIC MEMBERS ====================
 
-Frame::Frame(): mpcpi(nullptr), mpExtractor(nullptr),mpImuPreintegrated(nullptr), 
-    mpImuPreintegratedFrame(nullptr), mpPrevFrame(nullptr), mpLastKeyFrame(nullptr), 
-    mpReferenceKF(nullptr), mbImuPreintegrated(false), mbHasPose(false), mbHasVelocity(false)
+long unsigned int Frame::nNextId = 0;
+
+// ==================== CONSTRUCTORS ====================
+
+Frame::Frame(): 
+    mnId(0), mTimeStamp(0.0), N(0), mbHasPose(false), mVw(Eigen::Vector3f::Zero()), mbHasVelocity(false), mImuBias(), 
+    mbImuPreintegrated(false), mpcpi(nullptr), mpExtractor(nullptr), mpImuPreintegrated(nullptr), mpImuPreintegratedFrame(nullptr), 
+    mpPrevFrame(nullptr), mpLastKeyFrame(nullptr), mpReferenceKF(nullptr), mpCamera(nullptr), mpImuCalib(nullptr)
 {}
 
-//Copy Constructor
-Frame::Frame(const Frame &frame) : mpcpi(frame.mpcpi), mpExtractor(frame.mpExtractor), 
-     mTimeStamp(frame.mTimeStamp), N(frame.N), mvKeys(frame.mvKeys), mvKeysUn(frame.mvKeysUn), 
-     mvKeyEdges(frame.mvKeyEdges), mBowVec(frame.mBowVec), mFeatVec(frame.mFeatVec),
-     mDescriptors(frame.mDescriptors.clone()), mvpMapPoints(frame.mvpMapPoints), mvpMapEdges(frame.mvpMapEdges), 
-     mvbOutlier(frame.mvbOutlier), mpImuCalib(frame.mpImuCalib), mpCamera(frame.mpCamera), 
-     mpImuPreintegrated(frame.mpImuPreintegrated), mpImuPreintegratedFrame(frame.mpImuPreintegratedFrame), mImuBias(frame.mImuBias),
-     mnId(frame.mnId), mpReferenceKF(frame.mpReferenceKF), 
-     mpPrevFrame(frame.mpPrevFrame), mpLastKeyFrame(frame.mpLastKeyFrame),
-     mbImuPreintegrated(frame.mbImuPreintegrated), mTcw(frame.mTcw), mbHasPose(false), mbHasVelocity(false)
+Frame::Frame(const Frame &frame) : 
+    mnId(frame.mnId), mTimeStamp(frame.mTimeStamp), N(frame.N), mvKeys(frame.mvKeys), mvKeysUn(frame.mvKeysUn), mvKeyEdges(frame.mvKeyEdges),
+    mDescriptors(frame.mDescriptors.clone()), mvpMapPoints(frame.mvpMapPoints), mvpMapEdges(frame.mvpMapEdges), mvbOutlier(frame.mvbOutlier), 
+    mBowVec(frame.mBowVec), mFeatVec(frame.mFeatVec), mTcw(frame.mTcw), mRwc(frame.mRwc), mOw(frame.mOw), mRcw(frame.mRcw), mtcw(frame.mtcw),
+    mbHasPose(false), mVw(frame.mVw), mbHasVelocity(false), mImuBias(frame.mImuBias), mbImuPreintegrated(frame.mbImuPreintegrated), mpcpi(frame.mpcpi), 
+    mpExtractor(frame.mpExtractor), mpImuPreintegrated(frame.mpImuPreintegrated), mpImuPreintegratedFrame(frame.mpImuPreintegratedFrame),
+    mpPrevFrame(frame.mpPrevFrame), mpLastKeyFrame(frame.mpLastKeyFrame), mpReferenceKF(frame.mpReferenceKF), mpCamera(frame.mpCamera), 
+    mpImuCalib(frame.mpImuCalib)
 {
     srcMat = frame.srcMat.clone();
-    for(int i=0;i<FRAME_GRID_COLS;i++)
-        for(int j=0; j<FRAME_GRID_ROWS; j++)
-            mGrid[i][j]=frame.mGrid[i][j];
+    
+    // Copy grid
+    for(int i = 0; i < GeometricCamera::FRAME_GRID_COLS; i++)
+        for(int j = 0; j < GeometricCamera::FRAME_GRID_ROWS; j++)
+            mGrid[i][j] = frame.mGrid[i][j];
 
     if(frame.mbHasPose)
         SetPose(frame.GetPose());
 
     if(frame.HasVelocity())
-    {
         SetVelocity(frame.GetVelocity());
-    }
 }
+
+Frame::Frame(const cv::Mat &imGray, const double &timeStamp, PPGExtractor* pExt, GeometricCamera* pCam, IMU::Calib *pImu, Frame* pPrevF)
+    : mnId(nNextId++), mTimeStamp(timeStamp), N(0),
+      mbHasPose(false), mVw(Eigen::Vector3f::Zero()), mbHasVelocity(false), 
+      mImuBias(), mbImuPreintegrated(false),
+      mpcpi(nullptr), mpExtractor(pExt), 
+      mpImuPreintegrated(nullptr), mpImuPreintegratedFrame(nullptr),
+      mpPrevFrame(pPrevF), mpLastKeyFrame(nullptr), mpReferenceKF(nullptr),
+      mpCamera(pCam), mpImuCalib(pImu)
+{
+    srcMat = imGray.clone();
+
+    // Extract features
+    mpExtractor->run(imGray, mvKeys, mvKeysUn, mvKeyEdges, mDescriptors); 
+    N = mvKeys.size();
+    
+    if(mvKeys.empty())
+        return;
+
+    // Initialize containers
+    mvpMapPoints = vector<MapPoint*>(N, static_cast<MapPoint*>(nullptr));
+    mvpMapEdges = vector<MapEdge*>(mvKeyEdges.size(), static_cast<MapEdge*>(nullptr));
+    mvbOutlier = vector<bool>(N, false);
+
+    AssignFeaturesToGrid();
+
+    // Set velocity from previous frame
+    if(pPrevF && pPrevF->HasVelocity())
+        SetVelocity(pPrevF->GetVelocity());
+}
+
+// ==================== KEYFRAME CREATION ====================
 
 KeyFrame* Frame::buildKeyFrame(Map* pMap)
 {
@@ -49,11 +85,7 @@ KeyFrame* Frame::buildKeyFrame(Map* pMap)
     ret->bImu = pMap->isImuInitialized();
     ret->mnFrameId = mnId;  
     ret->mTimeStamp = mTimeStamp;
-    ret->mnGridCols = FRAME_GRID_COLS;
-    ret->mnGridRows = FRAME_GRID_ROWS;
 
-    ret->mfGridElementWidthInv = mfGridElementWidthInv;
-    ret->mfGridElementHeightInv = mfGridElementHeightInv;
     ret->N = N;
     ret->mvKeys = mvKeys;
     ret->mvKeysUn = mvKeysUn;
@@ -61,10 +93,6 @@ KeyFrame* Frame::buildKeyFrame(Map* pMap)
     ret->mDescriptors = mDescriptors.clone();
     ret->mBowVec = mBowVec;
     ret->mFeatVec = mFeatVec;
-    ret->mnMinX = mnMinX;
-    ret->mnMinY = mnMinY;
-    ret->mnMaxX = mnMaxX;
-    ret->mnMaxY = mnMaxY;
     ret->mpImuPreintegrated = mpImuPreintegrated;
     ret->mpImuCalib = mpImuCalib;
     ret->mpCamera = mpCamera;
@@ -72,93 +100,50 @@ KeyFrame* Frame::buildKeyFrame(Map* pMap)
     ret->mvpMapEdges = mvpMapEdges;
     ret->srcMat = srcMat.clone();
 
-    ret->mGrid.resize(FRAME_GRID_COLS);
-    for(int i=0; i<FRAME_GRID_COLS;i++)
+    // Copy grid
+    ret->mGrid.resize(GeometricCamera::FRAME_GRID_COLS);
+    for(int i = 0; i < GeometricCamera::FRAME_GRID_COLS; i++)
     {
-        ret->mGrid[i].resize(FRAME_GRID_ROWS);
-        for(int j=0; j<FRAME_GRID_ROWS; j++){
+        ret->mGrid[i].resize(GeometricCamera::FRAME_GRID_ROWS);
+        for(int j = 0; j < GeometricCamera::FRAME_GRID_ROWS; j++)
             ret->mGrid[i][j] = mGrid[i][j];
-        }
     }
 
-    if(!HasVelocity()) 
-    {
-        ret->mVw.setZero();
-        ret->mbHasVelocity = false;
-    }
-    else
+    // Set velocity and bias
+    if(HasVelocity()) 
     {
         ret->mVw = GetVelocity();
         ret->mbHasVelocity = true;
     }
+    else
+    {
+        ret->mVw.setZero();
+        ret->mbHasVelocity = false;
+    }
+    
     ret->mImuBias = mImuBias;
     ret->SetPose(GetPose());
 
+    // Compute BoW
     vector<cv::Mat> vCurrentDesc(mDescriptors.rows, cv::Mat());
-    for (int j=0;j<mDescriptors.rows;j++)
+    for(int j = 0; j < mDescriptors.rows; j++)
         vCurrentDesc[j] = mDescriptors.row(j);
-    pMap->mpVoc->transform(vCurrentDesc,ret->mBowVec,ret->mFeatVec,4);
+    pMap->mpVoc->transform(vCurrentDesc, ret->mBowVec, ret->mFeatVec, 4);
 
     return ret;
 }
 
-Frame::Frame(const cv::Mat &imGray, const double &timeStamp, PPGExtractor* pExt, GeometricCamera* pCam, IMU::Calib *pImu, Frame* pPrevF)
-    :mpcpi(NULL),mpExtractor(pExt), mTimeStamp(timeStamp), 
-    mpImuCalib(pImu), mpImuPreintegrated(NULL),mpPrevFrame(pPrevF),mpImuPreintegratedFrame(NULL), mpReferenceKF(static_cast<KeyFrame*>(NULL)), mbImuPreintegrated(false), mpCamera(pCam),
-     mbHasPose(false), mbHasVelocity(false)
-{
-    srcMat = imGray.clone();
-    // Frame ID
-    mnId=nNextId++;
-
-    mpExtractor->run(imGray, mvKeys, mvKeysUn, mvKeyEdges, mDescriptors); 
-
-    N = mvKeys.size();
-    if(mvKeys.empty())
-        return;
-
-    mvpMapPoints = vector<MapPoint*>(N,static_cast<MapPoint*>(NULL));
-
-    mvpMapEdges = vector<MapEdge*>(mvKeyEdges.size(),static_cast<MapEdge*>(NULL));
-
-    mvbOutlier = vector<bool>(N,false);
-
-    // This is done only for the first Frame (or after a change in the calibration)
-    if(mbInitialComputations)
-    {
-        ComputeImageBounds(imGray);
-
-        mfGridElementWidthInv=static_cast<float>(FRAME_GRID_COLS)/static_cast<float>(mnMaxX-mnMinX);
-        mfGridElementHeightInv=static_cast<float>(FRAME_GRID_ROWS)/static_cast<float>(mnMaxY-mnMinY);
-
-        mbInitialComputations=false;
-    }
-
-    AssignFeaturesToGrid();
-
-    if(pPrevF)
-    {
-        if(pPrevF->HasVelocity())
-        {
-            SetVelocity(pPrevF->GetVelocity());
-        }
-    }
-    else
-    {
-        mVw.setZero();
-    }
-}
-
+// ==================== GRID MANAGEMENT ====================
 
 void Frame::AssignFeaturesToGrid()
 {
     // Fill matrix with points
-    const int nCells = FRAME_GRID_COLS*FRAME_GRID_ROWS;
+    const int nCells = GeometricCamera::FRAME_GRID_COLS*GeometricCamera::FRAME_GRID_ROWS;
 
     int nReserve = 0.5f*N/(nCells);
 
-    for(unsigned int i=0; i<FRAME_GRID_COLS;i++)
-        for (unsigned int j=0; j<FRAME_GRID_ROWS;j++)
+    for(unsigned int i=0; i<GeometricCamera::FRAME_GRID_COLS;i++)
+        for (unsigned int j=0; j<GeometricCamera::FRAME_GRID_ROWS;j++)
             mGrid[i][j].reserve(nReserve);
 
     for(int i=0;i<N;i++)
@@ -170,9 +155,10 @@ void Frame::AssignFeaturesToGrid()
     }
 }
 
-void Frame::SetPose(const Sophus::SE3<float> &Tcw) {
-    mTcw = Tcw;
+// ==================== POSE MANAGEMENT ====================
 
+void Frame::SetPose(const SE3<float> &Tcw) {
+    mTcw = Tcw;
     UpdatePoseMatrices();
     mbHasPose = true;
 }
@@ -200,8 +186,8 @@ void Frame::SetImuPoseVelocity(const Eigen::Matrix3f &Rwb, const Eigen::Vector3f
     mVw = Vwb;
     mbHasVelocity = true;
 
-    Sophus::SE3f Twb(Rwb, twb);
-    Sophus::SE3f Tbw = Twb.inverse();
+    SE3f Twb(Rwb, twb);
+    SE3f Tbw = Twb.inverse();
 
     mTcw = mpImuCalib->mTcb * Tbw;
 
@@ -209,9 +195,11 @@ void Frame::SetImuPoseVelocity(const Eigen::Matrix3f &Rwb, const Eigen::Vector3f
     mbHasPose = true;
 }
 
+// ==================== INTERNAL POSE COMPUTATION ====================
+
 void Frame::UpdatePoseMatrices()
 {
-    Sophus::SE3<float> Twc = mTcw.inverse();
+    SE3<float> Twc = mTcw.inverse();
     mRwc = Twc.rotationMatrix();
     mOw = Twc.translation();
     mRcw = mTcw.rotationMatrix();
@@ -226,9 +214,11 @@ Eigen::Matrix<float,3,3> Frame::GetImuRotation() {
     return mRwc * mpImuCalib->mTcb.rotationMatrix();
 }
 
-Sophus::SE3<float> Frame::GetImuPose() {
+SE3<float> Frame::GetImuPose() {
     return mTcw.inverse() * mpImuCalib->mTcb;
 }
+
+// ==================== FEATURE MANAGEMENT ====================
 
 void Frame::CheckInFrustum(MapPoint *pMP, float viewingCosLimit)
 {
@@ -245,9 +235,7 @@ void Frame::CheckInFrustum(MapPoint *pMP, float viewingCosLimit)
         return;
     // check if projected in image
     const Eigen::Vector2f uv = mpCamera->project(Pc);
-    if(uv(0)<mnMinX || uv(0)>mnMaxX)
-        return;
-    if(uv(1)<mnMinY || uv(1)>mnMaxY)
+    if(!mpCamera->IsInImage(uv(0), uv(1)))
         return;
     // Check distance to camera
     const float maxDistance = pMP->GetMaxDistanceInvariance();
@@ -279,25 +267,25 @@ vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const f
     float factorX = r;
     float factorY = r;
 
-    const int nMinCellX = max(0,(int)floor((x-mnMinX-factorX)*mfGridElementWidthInv));
-    if(nMinCellX>=FRAME_GRID_COLS)
+    const int nMinCellX = max(0,(int)floor((x-mpCamera->mnMinX-factorX)*mpCamera->mfGridElementWidthInv));
+    if(nMinCellX>=GeometricCamera::FRAME_GRID_COLS)
     {
         return vIndices;
     }
 
-    const int nMaxCellX = min((int)FRAME_GRID_COLS-1,(int)ceil((x-mnMinX+factorX)*mfGridElementWidthInv));
+    const int nMaxCellX = min((int)GeometricCamera::FRAME_GRID_COLS-1,(int)ceil((x-mpCamera->mnMinX+factorX)*mpCamera->mfGridElementWidthInv));
     if(nMaxCellX<0)
     {
         return vIndices;
     }
 
-    const int nMinCellY = max(0,(int)floor((y-mnMinY-factorY)*mfGridElementHeightInv));
-    if(nMinCellY>=FRAME_GRID_ROWS)
+    const int nMinCellY = max(0,(int)floor((y-mpCamera->mnMinY-factorY)*mpCamera->mfGridElementHeightInv));
+    if(nMinCellY>=GeometricCamera::FRAME_GRID_ROWS)
     {
         return vIndices;
     }
 
-    const int nMaxCellY = min((int)FRAME_GRID_ROWS-1,(int)ceil((y-mnMinY+factorY)*mfGridElementHeightInv));
+    const int nMaxCellY = min((int)GeometricCamera::FRAME_GRID_ROWS-1,(int)ceil((y-mpCamera->mnMinY+factorY)*mpCamera->mfGridElementHeightInv));
     if(nMaxCellY<0)
     {
         return vIndices;
@@ -328,16 +316,17 @@ vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const f
 
 bool Frame::PosInGrid(const KeyPointEx &kp, int &posX, int &posY)
 {
-    posX = round((kp.mPos[0]-mnMinX)*mfGridElementWidthInv);
-    posY = round((kp.mPos[1]-mnMinY)*mfGridElementHeightInv);
+    posX = round((kp.mPos[0]-mpCamera->mnMinX)*mpCamera->mfGridElementWidthInv);
+    posY = round((kp.mPos[1]-mpCamera->mnMinY)*mpCamera->mfGridElementHeightInv);
 
     //Keypoint's coordinates are undistorted, which could cause to go out of the image
-    if(posX<0 || posX>=FRAME_GRID_COLS || posY<0 || posY>=FRAME_GRID_ROWS)
+    if(posX<0 || posX>=GeometricCamera::FRAME_GRID_COLS || posY<0 || posY>=GeometricCamera::FRAME_GRID_ROWS)
         return false;
 
     return true;
 }
 
+// ==================== BAG OF WORDS ====================
 
 void Frame::ComputeBoW(Map* pMap)
 {
@@ -347,37 +336,6 @@ void Frame::ComputeBoW(Map* pMap)
         for (int j=0;j<mDescriptors.rows;j++)
             vCurrentDesc[j] = mDescriptors.row(j);
         pMap->mpVoc->transform(vCurrentDesc,mBowVec,mFeatVec,4);
-    }
-}
-
-void Frame::ComputeImageBounds(const cv::Mat &imLeft)
-{
-    if(mpCamera->mnType == mpCamera->CAM_PINHOLE)
-    {
-        cv::Mat mat(4,2,CV_32F);
-        mat.at<float>(0,0)=0.0; mat.at<float>(0,1)=0.0;
-        mat.at<float>(1,0)=imLeft.cols; mat.at<float>(1,1)=0.0;
-        mat.at<float>(2,0)=0.0; mat.at<float>(2,1)=imLeft.rows;
-        mat.at<float>(3,0)=imLeft.cols; mat.at<float>(3,1)=imLeft.rows;
-
-        mat=mat.reshape(2);
-        cv::Mat K = mpCamera->toK();
-        cv::Mat D = mpCamera->toD();
-        cv::undistortPoints(mat,mat,K,D,cv::Mat(),K);
-        mat=mat.reshape(1);
-
-        // Undistort corners
-        mnMinX = min(mat.at<float>(0,0),mat.at<float>(2,0));
-        mnMaxX = max(mat.at<float>(1,0),mat.at<float>(3,0));
-        mnMinY = min(mat.at<float>(0,1),mat.at<float>(1,1));
-        mnMaxY = max(mat.at<float>(2,1),mat.at<float>(3,1));
-    }
-    else
-    {
-        mnMinX = 0.0f;
-        mnMaxX = imLeft.cols;
-        mnMinY = 0.0f;
-        mnMaxY = imLeft.rows;
     }
 }
 

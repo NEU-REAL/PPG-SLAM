@@ -13,7 +13,7 @@ SlamNode::SlamNode() : Node("slam_node")
     imu_sub = this->create_subscription<sensor_msgs::msg::Imu>("/ppg_slam/imu_raw", 1000, std::bind(&SlamNode::IMU_CB, this, std::placeholders::_1));
     image_sub = this->create_subscription<sensor_msgs::msg::Image>("/ppg_slam/image_raw", 100, std::bind(&SlamNode::Image_CB, this, std::placeholders::_1));
     m_timer_exe = this->create_wall_timer(10ms, std::bind(&SlamNode::timer, this));
-    m_timer_map = this->create_wall_timer(200ms, std::bind(&SlamNode::timer_Map, this));
+    m_timer_map = this->create_wall_timer(500ms, std::bind(&SlamNode::timer_Map, this));
     
     trajectory_pub = this->create_publisher<nav_msgs::msg::Path>("trajectory", 100);
     image_pub = this->create_publisher<sensor_msgs::msg::Image>("image_result", 100);
@@ -38,9 +38,9 @@ SlamNode::~SlamNode()
     // Save camera trajectory
     cout << endl << "Saving trajectory to CameraTrajectory.txt" << " ..." << endl;
 
-    sort(vpKFs.begin(),vpKFs.end(),KeyFrame::lId);
+    sort(vpKFs.begin(),vpKFs.end(), [](KeyFrame* pKF1, KeyFrame* pKF2){return pKF1->mnId < pKF2->mnId;});
 
-    Sophus::SE3f Twb;
+    SE3f Twb;
     Twb = vpKFs[0]->GetImuPose();
 
     ofstream f;
@@ -53,7 +53,7 @@ SlamNode::~SlamNode()
     for(auto lit=MSTracking::get().mlRelativeFramePoses.begin(), lend=MSTracking::get().mlRelativeFramePoses.end();lit!=lend;lit++, lRit++, lT++)
     {
         KeyFrame* pKF = *lRit;
-        Sophus::SE3f Trw;
+        SE3f Trw;
         if (!pKF)
             continue;
         while(pKF->isBad())
@@ -63,7 +63,7 @@ SlamNode::~SlamNode()
         }
         Trw = Trw * pKF->GetPose()*Twb;
 
-        Sophus::SE3f Twb = (pKF->mpImuCalib->mTbc * (*lit) * Trw).inverse();
+        SE3f Twb = (pKF->mpImuCalib->mTbc * (*lit) * Trw).inverse();
         Eigen::Quaternionf q = Twb.unit_quaternion();
         Eigen::Vector3f twb = Twb.translation();
         f << setprecision(6) << (*lT) << " " <<  setprecision(9) << twb(0) << " " << twb(1) << " " << twb(2) << " " << q.w() << " " << q.x() << " " << q.y() << " " << q.z() << endl;
@@ -74,9 +74,9 @@ SlamNode::~SlamNode()
 
 void SlamNode::Load()
 {
-    this->declare_parameter<std::string>("vocabulary", "");
-    this->declare_parameter<std::string>("config", "");
-    this->declare_parameter<std::string>("net", "");
+    this->declare_parameter<std::string>("vocabulary", "install/ppg_slam/share/ppg_slam/Vocabulary/voc_euroc_9x3.gz");
+    this->declare_parameter<std::string>("config", "install/ppg_slam/share/ppg_slam/config/EuRoC.yaml");
+    this->declare_parameter<std::string>("net", "install/ppg_slam/share/ppg_slam/net");
     string strVocFile, strSettingsFile, netFile;
     if(!this->get_parameter<std::string>("vocabulary", strVocFile))
         RCLCPP_ERROR(this->get_logger(), "FAIL TO LOAD vocabulary!");
@@ -147,7 +147,7 @@ void SlamNode::Load()
     Eigen::Quaternionf q(eigenR.cast<float>());
     Eigen::Matrix<float,3,1> t;
     t <<  cvTbc.at<float>(0, 3), cvTbc.at<float>(1, 3), cvTbc.at<float>(2, 3);
-    Sophus::SE3f Tbc = Sophus::SE3<float>(q,t);
+    SE3f Tbc = SE3<float>(q,t);
     const float sf = sqrt(imuFreq);
     IMU::Calib *pImu = new IMU::Calib(Tbc, ng * sf, na * sf, wg / sf, wa / sf, imuFreq);
     
@@ -221,13 +221,13 @@ void SlamNode::timer()
         vector<KeyFrame*> vpKFs = mpMap->GetAllKeyFrames();
         if(vpKFs.empty())
             return;
-        sort(vpKFs.begin(),vpKFs.end(),KeyFrame::lId);
+        sort(vpKFs.begin(),vpKFs.end(), [](KeyFrame* pKF1, KeyFrame* pKF2){return pKF1->mnId < pKF2->mnId;});
         nav_msgs::msg::Path path;
         list<KeyFrame*>::iterator lRit = MSTracking::get().mlpReferences.begin();
         for(auto lit=MSTracking::get().mlRelativeFramePoses.begin(), lend=MSTracking::get().mlRelativeFramePoses.end();lit!=lend;lit++, lRit++)
         {
             KeyFrame* pKF = *lRit;
-            Sophus::SE3f Trw;
+            SE3f Trw;
             if (!pKF)
                 continue;
             while(pKF->isBad())
@@ -237,7 +237,7 @@ void SlamNode::timer()
             }
             Trw = Trw * pKF->GetPose();
 
-            Sophus::SE3f Twb = (pKF->mpImuCalib->mTbc * (*lit) * Trw).inverse();
+            SE3f Twb = (pKF->mpImuCalib->mTbc * (*lit) * Trw).inverse();
             Eigen::Quaternionf q = Twb.unit_quaternion();
             Eigen::Vector3f twb = Twb.translation();
             geometry_msgs::msg::PoseStamped pose;

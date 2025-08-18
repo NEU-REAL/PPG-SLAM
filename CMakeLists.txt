@@ -17,10 +17,10 @@ find_package(nav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
-
 find_package(cv_bridge REQUIRED)
+
 find_package(OpenCV 4 REQUIRED)
-find_package(Eigen3 3.1.0 REQUIRED)
+find_package(Eigen3 REQUIRED)
 find_package(Torch REQUIRED PATHS /home/z/module/libtorch)
 find_package(DBoW3 REQUIRED)
 
@@ -29,8 +29,6 @@ include_directories(
     ${OpenCV_INCLUDE_DIRS}
     ${TORCH_INCLUDE_DIRS}
     ${DBoW3_INCLUDE_DIRS}
-    ${PROJECT_SOURCE_DIR}/Thirdparty/Sophus
-    ${PROJECT_SOURCE_DIR}/Thirdparty/g2o
     ${PROJECT_SOURCE_DIR}/sensors/include
     ${PROJECT_SOURCE_DIR}/feature/include
     ${PROJECT_SOURCE_DIR}/map/include
@@ -45,18 +43,20 @@ add_subdirectory(${PROJECT_SOURCE_DIR}/matching)
 add_subdirectory(${PROJECT_SOURCE_DIR}/map)
 add_subdirectory(${PROJECT_SOURCE_DIR}/optimizing)
 add_subdirectory(${PROJECT_SOURCE_DIR}/system)
-add_subdirectory(${PROJECT_SOURCE_DIR}/Thirdparty/g2o)
 
 #***************ros exe******************# 
 add_executable(${PROJECT_NAME}_node main.cpp)
-
 target_link_libraries(${PROJECT_NAME}_node
 Sensors Feature Matching Map Optimizing System
-${DBoW3_LIBS}
-${OpenCV_LIBS}
-${EIGEN3_LIBS}
-${TORCH_LIBRARIES}
-${PROJECT_SOURCE_DIR}/Thirdparty/g2o/lib/libg2o.so
+    ${DBoW3_LIBS}
+    ${OpenCV_LIBS}
+    ${EIGEN3_LIBS}
+    ${TORCH_LIBRARIES}
+    ${G2O_LIBRARIES}
+)
+
+ament_target_dependencies(${PROJECT_NAME}_node
+    rclcpp std_msgs tf2 tf2_ros nav_msgs sensor_msgs geometry_msgs visualization_msgs cv_bridge
 )
 
 add_executable(pub_euroc_node test/pub_euroc.cpp)
@@ -80,8 +80,6 @@ install(TARGETS Matching DESTINATION lib)
 install(TARGETS Map DESTINATION lib)
 install(TARGETS Optimizing DESTINATION lib)
 install(TARGETS System DESTINATION lib)
-install(TARGETS g2o DESTINATION lib)
-
 
 install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
 install(DIRECTORY rviz DESTINATION share/${PROJECT_NAME})
